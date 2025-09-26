@@ -60,6 +60,12 @@ int main(int argc, char **argv)
                 if (api_response.phase == PhaseDone || api_response.phase == PhaseError) {
                     activation_timestamp = 0;
                     is_activation_open = FALSE;
+                    // As soon as we receive a valid translation, exit the example program.
+                    // A real device will enter again the state where it only listens to audio, until the volume threshold is exceeded again.
+                    if (api_response.answer != AnswerNoCry && api_response.answer != AnswerUnknown) {
+                        printf("Received successful cry translation. Exiting example.\n");
+                        exit(0);
+                    }
                 } else {
                     activation_timestamp += SEND_TO_SERVER_SIZE_MS;
                 }
@@ -74,6 +80,12 @@ int main(int argc, char **argv)
                     if (api_response.phase == PhaseDone || api_response.phase == PhaseError) {
                         activation_timestamp = 0;
                         is_activation_open = FALSE;
+                        // As soon as we receive a valid translation, exit the example program.
+                        // A real device will enter again the state where it only listens to audio, until the volume threshold is exceeded again.
+                        if (api_response.answer != AnswerNoCry && api_response.answer != AnswerUnknown) {
+                            printf("Received successful cry translation. Exiting example.\n");
+                            exit(0);
+                        }
                     } else {
                         activation_timestamp += SEND_TO_SERVER_SIZE_MS;
                     }
