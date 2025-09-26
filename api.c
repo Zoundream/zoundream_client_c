@@ -5,14 +5,14 @@
 #include "audio.h"
 #include "api.h"
 
-#define MAX_TIMESTAMP_LEN 30 // size of the string "x-audio-timestamp: " plus the maximum size of an uint32 converted to string, plus null termination.
-
 struct ResponseBody {
   char *memory;
   size_t size;
 };
 struct ResponseBody response;
 CURL *curl;
+
+#define MAX_TIMESTAMP_LEN 30 // size of the string "x-audio-timestamp: " plus the maximum size of an uint32 converted to string, plus null termination.
 
 /* ------------------------------ Internal functions ----------------------------------- */
 
@@ -136,7 +136,8 @@ void api_send_audio(int16_t* audio, u_int32_t timestamp, ApiResponse* api_respon
     }
 
     struct curl_slist *list = NULL;
-    list = curl_slist_append(list, "Authorization: curl");
+    list = curl_slist_append(list, "Authorization: " TEST_USER_ID);
+    list = curl_slist_append(list, "x-api-key: " API_KEY);
     list = curl_slist_append(list, "x-audio-sample-rate: 16000");
     list = curl_slist_append(list, timestamp_header);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, list);

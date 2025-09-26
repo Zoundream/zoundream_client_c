@@ -1,6 +1,13 @@
 #ifndef __API__
 #define __API___
 
+/* ------------------------------ Parameters that can be changed ----------------------------------- */
+
+#define API_KEY "your-api-key" // change this to the API key that we assigned to your company
+#define TEST_USER_ID "test-user-id-1" // you can use any value here, but it should be unique for each individual simulated device.
+
+/* -------------------------------------------------------------------------------------------------- */
+
 /* The possible states of an activation */
 typedef enum {
     PhaseError = 0,         // An error has occurred, the activation should be closed
