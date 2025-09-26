@@ -5,7 +5,7 @@
 #include "audio.h"
 #include "api.h"
 
-#define MAX_TIMESTAMP_LEN 30 // size of "x-audio-timestamp: " plus the maximum size of an uint32 converted to string, plus null termination.
+#define MAX_TIMESTAMP_LEN 30 // size of the string "x-audio-timestamp: " plus the maximum size of an uint32 converted to string, plus null termination.
 
 struct ResponseBody {
   char *memory;
