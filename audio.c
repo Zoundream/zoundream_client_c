@@ -1,4 +1,5 @@
 #include "audio.h"
+#include <stdio.h>
 #include <math.h>
 #include <float.h>
 
@@ -28,13 +29,27 @@ SNDFILE* audio_open(const char* file_path) {
  * @param file: a handle to a sound file from audio_open()
  * @buffer buffer: the audio buffer into which to save the audio
  * @amount amount: the amount of samples (uint16_t items) to read into the buffer
- * @returns 1 if successful, 0 if the end of the file was reached or another error occurred
+ * @returns 1 if successful, 0 if an error occurred
  */
 int audio_read(SNDFILE* file, int16_t* buffer, size_t amount) {
     sf_count_t read = sf_read_short(file, buffer, amount);
     if (read != amount) {
-        fprintf(stderr, "Finished reading file. Exiting.\n");
-        return 0;
+        // If we didn't read the full amount, we've reached the end of the file
+        // Loop back to the start and continue reading
+        if (sf_seek(file, 0, SEEK_SET) < 0) {
+            fprintf(stderr, "Error seeking to beginning of file.\n");
+            return 0;
+        }
+        fprintf(stderr, "Looping back to the start of the audio file.\n");
+        
+        // Read the rest from the beginning
+        size_t remaining = amount - read;
+        int16_t* buffer_offset = buffer + read;
+        sf_count_t read_remaining = sf_read_short(file, buffer_offset, remaining);
+        if (read_remaining != remaining) {
+            fprintf(stderr, "Error reading from looped file.\n");
+            return 0;
+        }
     }
     return 1;
 }

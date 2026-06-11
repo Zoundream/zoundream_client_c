@@ -36,7 +36,8 @@ int main(int argc, char **argv)
     SNDFILE* audio_file = audio_open(argv[2]);
     if (audio_file == 0) exit(2);
 
-    // Read audio in blocks of 100ms and save it in the main audio buffer
+    // Read audio in blocks of 100ms and save it in the main audio buffer.
+    // Note that once that audio_file runs out of data, it will loop back to the start of the file and continue reading.
     uint16_t* block_position = audio;
     while (audio_read(audio_file, block_position, THRESHOLD_ANALYSIS_SIZE) != 0) {
         audio_block++;
@@ -100,19 +101,6 @@ int main(int argc, char **argv)
         block_position = audio + (audio_block * THRESHOLD_ANALYSIS_SIZE);
     }
 
-    // Our protocol requires that we should continue sending audio until we receive a response containing "phase: done".
-    // In this example, since we are reading audio from a file, we might reach the end of the data before the activation could
-    // finish. So to make sure the activation is closed properly, we will send empty buffers (i.e. silence) until the server tells us
-    // to stop. This should obviously not be needed in case of reading audio from a microphone, as it will never run out of data.
-    printf("Audio from file is finished. Sending silence, if needed, until activation closes.\n");
-    while (is_activation_open == TRUE) {
-        memset(audio, 0, sizeof(int16_t) * SAMPLE_RATE);
-        api_send_audio(audio, activation_timestamp, &api_response);
-        // If the server says that the phase is "done" or there's an error, then close the activation. Otherwise increment the timestamp.
-        if (api_response.phase == PhaseDone || api_response.phase == PhaseError) {
-            is_activation_open = FALSE;
-        } else {
-            activation_timestamp += SEND_TO_SERVER_SIZE_MS;
-        }
-    }
+    sf_close(audio_file);
+    return 0;
 }
