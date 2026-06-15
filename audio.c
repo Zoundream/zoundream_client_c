@@ -12,13 +12,14 @@ SNDFILE* audio_open(const char* file_path) {
     info.format = 0;
     SNDFILE* file = sf_open(file_path, SFM_READ, &info);
     if (file == NULL) {
-        fprintf(stderr, "Failed to open file.\n");
+        printf("Failed to open file.\n");
         return 0;
     }
 
     printf("Audio file opened: channels %d, sample rate %d\n", info.channels, info.samplerate);
+    printf("  Total frames: %ld (duration: %.2f seconds)\n", info.frames, (double)info.frames / info.samplerate);
     if (info.channels != 1 || info.samplerate != 16000) {
-        fprintf(stderr, "Format not compatible. Can only accept single channel 16KHz files.\n");
+        printf("Format not compatible. Can only accept single channel 16KHz files.\n");
         return 0;
     }
     return file;
@@ -26,28 +27,31 @@ SNDFILE* audio_open(const char* file_path) {
 
 /** Reads a chunk of audio from the sound file
  *
- * @param file: a handle to a sound file from audio_open()
+ * @param file: pointer to a sound file handle from audio_open()
+ * @param file_path: path to the audio file (used for reopening on loop)
  * @buffer buffer: the audio buffer into which to save the audio
  * @amount amount: the amount of samples (uint16_t items) to read into the buffer
  * @returns 1 if successful, 0 if an error occurred
  */
-int audio_read(SNDFILE* file, int16_t* buffer, size_t amount) {
-    sf_count_t read = sf_read_short(file, buffer, amount);
+int audio_read(SNDFILE** file, const char* file_path, int16_t* buffer, size_t amount) {
+    sf_count_t read = sf_read_short(*file, buffer, amount);
     if (read != amount) {
-        // If we didn't read the full amount, we've reached the end of the file
-        // Loop back to the start and continue reading
-        if (sf_seek(file, 0, SEEK_SET) < 0) {
-            fprintf(stderr, "Error seeking to beginning of file.\n");
+        sf_close(*file);
+        
+        SF_INFO info;
+        info.format = 0;
+        *file = sf_open(file_path, SFM_READ, &info);
+        if (*file == NULL) {
+            printf("Error: Failed to reopen file for looping.\n");
             return 0;
         }
-        fprintf(stderr, "Looping back to the start of the audio file.\n");
+        printf("Looping back to the start of the audio file.\n");
         
-        // Read the rest from the beginning
         size_t remaining = amount - read;
         int16_t* buffer_offset = buffer + read;
-        sf_count_t read_remaining = sf_read_short(file, buffer_offset, remaining);
+        sf_count_t read_remaining = sf_read_short(*file, buffer_offset, remaining);
         if (read_remaining != remaining) {
-            fprintf(stderr, "Error reading from looped file.\n");
+            printf("Error: File too small to fill a single buffer. Cannot loop.\n");
             return 0;
         }
     }

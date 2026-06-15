@@ -37,9 +37,9 @@ int main(int argc, char **argv)
     if (audio_file == 0) exit(2);
 
     // Read audio in blocks of 100ms and save it in the main audio buffer.
-    // Note that once that audio_file runs out of data, it will loop back to the start of the file and continue reading.
+    // Note that once that audio_file runs out of data, it will be closed and reopened to loop.
     uint16_t* block_position = audio;
-    while (audio_read(audio_file, block_position, THRESHOLD_ANALYSIS_SIZE) != 0) {
+    while (audio_read(&audio_file, argv[2], block_position, THRESHOLD_ANALYSIS_SIZE) != 0) {
         audio_block++;
 
         if (is_activation_open == FALSE) {

@@ -3,8 +3,8 @@
 
 /* ------------------------------ Parameters that can be changed ----------------------------------- */
 
-#define API_KEY "your-api-key" // change this to the API key that we assigned to your company
-#define TEST_USER_ID "test-user-id-1" // you can use any value here, but it should be unique for each individual simulated device.
+#define API_KEY "prod-znd-eu-west-1" // change this to the API key that we assigned to your company
+#define TEST_USER_ID "ugo-test-demo" // you can use any value here, but it should be unique for each individual simulated device.
 
 /* -------------------------------------------------------------------------------------------------- */
 
