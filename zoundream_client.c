@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <getopt.h>
 
 #include "audio.h"
 #include "api.h"
@@ -16,10 +17,35 @@
 
 int main(int argc, char **argv)
 {
-    if (argc < 3) {
-        printf("Usage: %s ENDPOINT_URL AUDIO_FILE_PATH\n", argv[0]);
-        printf("ENDPOINT_URL: the url of the Zoundream endpoint you would like to call.\n");
-        printf("AUDIO_FILE_URL: the path of the audio file that you would like to translate.\n");
+    double gate_threshold = GATE_THRESHOLD;
+    int gate_disabled = FALSE;
+
+    int opt;
+    while ((opt = getopt(argc, argv, "t:")) != -1) {
+        switch (opt) {
+            case 't':
+                if (strcmp(optarg, "off") == 0) {
+                    gate_disabled = TRUE;
+                } else {
+                    char* end;
+                    gate_threshold = strtod(optarg, &end);
+                    if (*end != '\0') {
+                        fprintf(stderr, "Invalid threshold value: %s\n", optarg);
+                        exit(2);
+                    }
+                }
+                break;
+            default:
+                fprintf(stderr, "Usage: %s [-t THRESHOLD|off] ENDPOINT_URL AUDIO_FILE_PATH\n", argv[0]);
+                exit(2);
+        }
+    }
+
+    if (argc - optind < 2) {
+        printf("Usage: %s [-t THRESHOLD|off] ENDPOINT_URL AUDIO_FILE_PATH\n", argv[0]);
+        printf("  ENDPOINT_URL: the url of the Zoundream endpoint you would like to call.\n");
+        printf("  AUDIO_FILE_PATH: the path of the audio file that you would like to translate.\n");
+        printf("  -t THRESHOLD: gate threshold in dB (default: %.1f). Use 'off' to always send audio.\n", GATE_THRESHOLD);
         exit(2);
     }
 
@@ -34,23 +60,23 @@ int main(int argc, char **argv)
     int no_cry_detected_count = 0;
 
     // Initialize the HTTP and audio modules, and if any of them fails just quit
-    if (api_init(argv[1]) != 1) exit(1);
-    printf("Processing file: %s\n", argv[2]);
-    SNDFILE* audio_file = audio_open(argv[2]);
+    if (api_init(argv[optind]) != 1) exit(1);
+    printf("Processing file: %s\n", argv[optind + 1]);
+    SNDFILE* audio_file = audio_open(argv[optind + 1]);
     if (audio_file == 0) exit(2);
 
     // Read audio in blocks of 100ms and save it in the main audio buffer.
     // Note that once that audio_file runs out of data, it will be closed and reopened to loop.
     uint16_t* block_position = audio;
-    while (audio_read(&audio_file, argv[2], block_position, THRESHOLD_ANALYSIS_SIZE, &has_looped) != 0) {
+    while (audio_read(&audio_file, argv[optind + 1], block_position, THRESHOLD_ANALYSIS_SIZE, &has_looped) != 0) {
         audio_block++;
 
         if (is_activation_open == FALSE) {
             // If the activation is not open, analyze every segment of audio that we receive
             // to check if they are above the threshold.
             // If the activation is already open, we don't need to do any analysis because we need to send the audio anyway.
-            if (audio_calculate_rms(block_position, THRESHOLD_ANALYSIS_SIZE) > GATE_THRESHOLD) {
-                printf("Block %ld is above threshold\n", audio_block - 1);
+            if (gate_disabled || audio_calculate_rms(block_position, THRESHOLD_ANALYSIS_SIZE) > gate_threshold) {
+                if (!gate_disabled) printf("Block %ld is above threshold\n", audio_block - 1);
                 is_audio_above_threshold = TRUE;
             }
         }
