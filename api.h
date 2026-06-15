@@ -26,9 +26,22 @@ typedef enum {
     AnswerUnknown = 6         // Special case for when the client fails to parse the response from the server
 } Answer;
 
+typedef enum {
+    ReasonUnknown = 0,
+    ReasonNoCryDetected = 1,
+    ReasonDetectionTimeout = 2,
+    ReasonActivationTimeout = 3,
+    ReasonNoCryPatternsTimeout = 4,
+    ReasonActivationAlreadyClosed = 5,
+    ReasonTimestampOutOfSequence = 6,
+    ReasonActivationExpired = 7,
+    ReasonCryTranslated = 8
+} Reason;
+
 typedef struct {
    Phase phase;    // the current state of the activation
    Answer answer;  // the answer for the translation (if phase is PhaseDone, otherwise needs to be ignored)
+   Reason reason;  // the reason for the answer (if phase is PhaseDone, otherwise needs to be ignored)
 } ApiResponse ;
 
 int api_init(const char* endpoint);

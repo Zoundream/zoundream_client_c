@@ -56,10 +56,24 @@ Answer parse_answer(const char* answer) {
     else return AnswerUnknown;
 }
 
+Reason parse_reason(const char* reason) {
+    if (reason == NULL) return ReasonUnknown;
+    else if (strcmp(reason, "no_valid_cry_patterns") == 0) return ReasonNoCryDetected;
+    else if (strcmp(reason, "detection_timeout") == 0) return ReasonDetectionTimeout;
+    else if (strcmp(reason, "activation_timeout") == 0) return ReasonActivationTimeout;
+    else if (strcmp(reason, "no_cry_patterns_timeout") == 0) return ReasonNoCryPatternsTimeout;
+    else if (strcmp(reason, "activation_already_closed") == 0) return ReasonActivationAlreadyClosed;
+    else if (strcmp(reason, "timestamp_out_of_sequence") == 0) return ReasonTimestampOutOfSequence;
+    else if (strcmp(reason, "activation_expired") == 0) return ReasonActivationExpired;
+    else if (strcmp(reason, "cry_translated") == 0) return ReasonCryTranslated;
+    else return ReasonUnknown;
+}
+
 int parse_response(ApiResponse* api_response) {
     struct json_object *parsed_json;
     struct json_object *phase;
     struct json_object *answer;
+    struct json_object *reason;
 
     parsed_json = json_tokener_parse(response.memory);
 
@@ -71,6 +85,13 @@ int parse_response(ApiResponse* api_response) {
     if (json_object_object_get_ex(parsed_json, "answer", &answer)) {
         const char *answer_value = json_object_get_string(answer);
         api_response->answer = parse_answer(answer_value);
+    }
+
+    if (json_object_object_get_ex(parsed_json, "reason", &reason)) {
+        const char *reason_value = json_object_get_string(reason);
+        api_response->reason = parse_reason(reason_value);
+    } else {
+        api_response->reason = ReasonUnknown;
     }
 }
 

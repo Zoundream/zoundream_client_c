@@ -30,16 +30,19 @@ int main(int argc, char **argv)
     size_t audio_block = 0;
     uint16_t audio[SAMPLE_RATE];
     memset(audio, 0, sizeof(int16_t) * SAMPLE_RATE);
+    int has_looped = FALSE;
+    int no_cry_detected_count = 0;
 
     // Initialize the HTTP and audio modules, and if any of them fails just quit
     if (api_init(argv[1]) != 1) exit(1);
+    printf("Processing file: %s\n", argv[2]);
     SNDFILE* audio_file = audio_open(argv[2]);
     if (audio_file == 0) exit(2);
 
     // Read audio in blocks of 100ms and save it in the main audio buffer.
     // Note that once that audio_file runs out of data, it will be closed and reopened to loop.
     uint16_t* block_position = audio;
-    while (audio_read(&audio_file, argv[2], block_position, THRESHOLD_ANALYSIS_SIZE) != 0) {
+    while (audio_read(&audio_file, argv[2], block_position, THRESHOLD_ANALYSIS_SIZE, &has_looped) != 0) {
         audio_block++;
 
         if (is_activation_open == FALSE) {
@@ -61,11 +64,34 @@ int main(int argc, char **argv)
                 if (api_response.phase == PhaseDone || api_response.phase == PhaseError) {
                     activation_timestamp = 0;
                     is_activation_open = FALSE;
+                    // Quit immediately on error reasons
+                    if (api_response.reason == ReasonActivationAlreadyClosed ||
+                        api_response.reason == ReasonTimestampOutOfSequence ||
+                        api_response.reason == ReasonActivationExpired) {
+                        printf("Received error reason from server. Exiting.\n");
+                        exit(0);
+                    }
+                    // Quit immediately on timeout reasons regardless of loop state
+                    if (api_response.answer == AnswerNoCry &&
+                        (api_response.reason == ReasonDetectionTimeout || api_response.reason == ReasonActivationTimeout ||
+                         api_response.reason == ReasonNoCryPatternsTimeout)) {
+                        printf("Received timeout. Exiting.\n");
+                        exit(0);
+                    }
                     // As soon as we receive a valid translation, exit the example program.
                     // A real device will enter again the state where it only listens to audio, until the volume threshold is exceeded again.
                     if (api_response.answer != AnswerNoCry && api_response.answer != AnswerUnknown) {
                         printf("Received successful cry translation. Exiting example.\n");
                         exit(0);
+                    }
+                    // After looping, count no_cry + no_cry_detected responses and quit after 4
+                    if (has_looped && api_response.answer == AnswerNoCry && api_response.reason == ReasonNoCryDetected) {
+                        no_cry_detected_count++;
+                        printf("No cry detected after loop (%d/4).\n", no_cry_detected_count);
+                        if (no_cry_detected_count >= 4) {
+                            printf("Reached 4 no_cry_detected responses after looping. Exiting.\n");
+                            exit(0);
+                        }
                     }
                 } else {
                     activation_timestamp += SEND_TO_SERVER_SIZE_MS;
@@ -81,11 +107,36 @@ int main(int argc, char **argv)
                     if (api_response.phase == PhaseDone || api_response.phase == PhaseError) {
                         activation_timestamp = 0;
                         is_activation_open = FALSE;
+                        // Quit immediately on error reasons
+                        if (api_response.reason == ReasonActivationAlreadyClosed ||
+                            api_response.reason == ReasonTimestampOutOfSequence ||
+                            api_response.reason == ReasonActivationExpired) {
+                            printf("Received error reason from server. Exiting.\n");
+                            exit(0);
+                        }
+                        // Quit immediately on timeout reasons regardless of loop state
+                        if (api_response.answer == AnswerNoCry &&
+                            (api_response.reason == ReasonDetectionTimeout || api_response.reason == ReasonActivationTimeout ||
+                             api_response.reason == ReasonNoCryPatternsTimeout)) {
+                            printf("Received timeout. Exiting.\n");
+                            exit(0);
+                        }
                         // As soon as we receive a valid translation, exit the example program.
                         // A real device will enter again the state where it only listens to audio, until the volume threshold is exceeded again.
                         if (api_response.answer != AnswerNoCry && api_response.answer != AnswerUnknown) {
                             printf("Received successful cry translation. Exiting example.\n");
                             exit(0);
+                        }
+                        // After looping, count no_cry + no_cry_detected responses and quit after 4.
+                        // NOTE: this is a behavior useful only in this test program since we are reading from pre-recorded files
+                        // and we want to avoid infinite loops.
+                        if (has_looped && api_response.answer == AnswerNoCry && api_response.reason == ReasonNoCryDetected) {
+                            no_cry_detected_count++;
+                            printf("No cry detected after loop (%d/4).\n", no_cry_detected_count);
+                            if (no_cry_detected_count >= 4) {
+                                printf("Reached 4 no_cry_detected responses after looping. Exiting.\n");
+                                exit(0);
+                            }
                         }
                     } else {
                         activation_timestamp += SEND_TO_SERVER_SIZE_MS;

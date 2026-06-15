@@ -33,11 +33,11 @@ SNDFILE* audio_open(const char* file_path) {
  * @amount amount: the amount of samples (uint16_t items) to read into the buffer
  * @returns 1 if successful, 0 if an error occurred
  */
-int audio_read(SNDFILE** file, const char* file_path, int16_t* buffer, size_t amount) {
+int audio_read(SNDFILE** file, const char* file_path, int16_t* buffer, size_t amount, int* has_looped) {
     sf_count_t read = sf_read_short(*file, buffer, amount);
     if (read != amount) {
         sf_close(*file);
-        
+
         SF_INFO info;
         info.format = 0;
         *file = sf_open(file_path, SFM_READ, &info);
@@ -46,6 +46,7 @@ int audio_read(SNDFILE** file, const char* file_path, int16_t* buffer, size_t am
             return 0;
         }
         printf("Looping back to the start of the audio file.\n");
+        *has_looped = 1;
         
         size_t remaining = amount - read;
         int16_t* buffer_offset = buffer + read;
