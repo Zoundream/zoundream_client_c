@@ -1,183 +1,108 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <getopt.h>
 
 #include "audio.h"
 #include "api.h"
 
 #define SEND_TO_SERVER_SIZE_MS 1000 // we send 1 second of audio to the server with every API call
-#define SAMPLE_RATE 16000           // this is the number of samples in 1 second of audio
-#define BLOCKS_IN_ONE_SECOND 10     // we analyze the audio every 100 ms, so we do 10 analysis in each second
-#define THRESHOLD_ANALYSIS_SIZE (SAMPLE_RATE / BLOCKS_IN_ONE_SECOND)
-#define GATE_THRESHOLD -20.0        // only blocks of audio where at least some segments pass this threshold will open an activation
+#define MAX_LOOPS 3                  // max number of times to loop back to the start looking for a valid translation, to avoid looping forever
 
 #define TRUE 1
 #define FALSE 0
 
 int main(int argc, char **argv)
 {
-    double gate_threshold = GATE_THRESHOLD;
-    int gate_disabled = FALSE;
-
-    int opt;
-    while ((opt = getopt(argc, argv, "t:")) != -1) {
-        switch (opt) {
-            case 't':
-                if (strcmp(optarg, "off") == 0) {
-                    gate_disabled = TRUE;
-                } else {
-                    char* end;
-                    gate_threshold = strtod(optarg, &end);
-                    if (*end != '\0') {
-                        fprintf(stderr, "Invalid threshold value: %s\n", optarg);
-                        exit(2);
-                    }
-                }
-                break;
-            default:
-                fprintf(stderr, "Usage: %s [-t THRESHOLD|off] ENDPOINT_URL AUDIO_FILE_PATH\n", argv[0]);
-                exit(2);
-        }
-    }
-
-    if (argc - optind < 2) {
-        printf("Usage: %s [-t THRESHOLD|off] ENDPOINT_URL AUDIO_FILE_PATH\n", argv[0]);
+    if (argc < 3) {
+        printf("Usage: %s ENDPOINT_URL AUDIO_FILE_PATH\n", argv[0]);
         printf("  ENDPOINT_URL: the url of the Zoundream endpoint you would like to call.\n");
         printf("  AUDIO_FILE_PATH: the path of the audio file that you would like to translate.\n");
-        printf("  -t THRESHOLD: gate threshold in dB (default: %.1f). Use 'off' to always send audio.\n", GATE_THRESHOLD);
         exit(2);
     }
 
-    int is_activation_open = FALSE;
-    int is_audio_above_threshold = FALSE;
+    const char* endpoint_url = argv[1];
+    const char* audio_file_path = argv[2];
+
     uint32_t activation_timestamp = 0;
     ApiResponse api_response;
-    size_t audio_block = 0;
-    uint16_t audio[SAMPLE_RATE];
+    int16_t audio[SAMPLE_RATE];
     memset(audio, 0, sizeof(int16_t) * SAMPLE_RATE);
-    int has_looped = FALSE;
-    int no_cry_detected_count = 0;
+    int has_valid_translation = FALSE;
+    int reached_eof = FALSE;
+    int loop_count = 0;
+    int silence_announced = FALSE; // whether we have already logged that we are padding with silence
+    int loop_on_eof = TRUE;        // whether audio_read should loop the file (vs pad silence) at EOF
 
     // Initialize the HTTP and audio modules, and if any of them fails just quit
-    if (api_init(argv[optind]) != 1) exit(1);
-    printf("Processing file: %s\n", argv[optind + 1]);
-    SNDFILE* audio_file = audio_open(argv[optind + 1]);
+    if (api_init(endpoint_url) != 1) exit(1);
+    printf("Processing file: %s\n", audio_file_path);
+    SNDFILE* audio_file = audio_open(audio_file_path);
     if (audio_file == 0) exit(2);
 
-    // Read audio in blocks of 100ms and save it in the main audio buffer.
-    // Note that once that audio_file runs out of data, it will be closed and reopened to loop.
-    uint16_t* block_position = audio;
-    while (audio_read(&audio_file, argv[optind + 1], block_position, THRESHOLD_ANALYSIS_SIZE, &has_looped) != 0) {
-        audio_block++;
+    // Read the audio one second at a time and send every buffer to the API.
+    // Unlike a real device, we do not apply any volume threshold: all the audio is sent.
+    // How the end of the file is handled (loop the file with real audio, or pad with digital
+    // silence) is decided by loop_on_eof, which is updated at the bottom of the loop.
+    while (audio_read(audio_file, audio, SAMPLE_RATE, loop_on_eof, &reached_eof) != 0) {
+        api_send_audio(audio, activation_timestamp, &api_response);
 
-        if (is_activation_open == FALSE) {
-            // If the activation is not open, analyze every segment of audio that we receive
-            // to check if they are above the threshold.
-            // If the activation is already open, we don't need to do any analysis because we need to send the audio anyway.
-            if (gate_disabled || audio_calculate_rms(block_position, THRESHOLD_ANALYSIS_SIZE) > gate_threshold) {
-                if (!gate_disabled) printf("Block %ld is above threshold\n", audio_block - 1);
-                is_audio_above_threshold = TRUE;
+        int closed = (api_response.phase == PhaseDone || api_response.phase == PhaseError);
+
+        if (closed) {
+            // The server has closed the activation. The next buffer we send (with timestamp 0)
+            // will start a brand new activation, so reset the timestamp and the silence counter.
+            activation_timestamp = 0;
+            silence_announced = FALSE;
+
+            // A valid translation is any answer other than "no_cry" (AnswerUnknown means we
+            // failed to parse the response, so it does not count as a valid translation either).
+            if (api_response.answer != AnswerNoCry && api_response.answer != AnswerUnknown) {
+                has_valid_translation = TRUE;
+                printf("Received a valid cry translation.\n");
             }
+        } else {
+            // The activation is still open, keep sending audio with an increasing timestamp.
+            activation_timestamp += SEND_TO_SERVER_SIZE_MS;
         }
 
-        // Check if the buffer is full
-        if (audio_block >= BLOCKS_IN_ONE_SECOND) {
-            // If the buffer is full and the activation is already open, send this buffer to the API
-            if (is_activation_open == TRUE) {
-                api_send_audio(audio, activation_timestamp, &api_response);
-                // If the server says that the phase is "done" or there's an error, then close the activation. Otherwise increment the timestamp.
-                if (api_response.phase == PhaseDone || api_response.phase == PhaseError) {
-                    activation_timestamp = 0;
-                    is_activation_open = FALSE;
-                    // Quit immediately on error reasons
-                    if (api_response.reason == ReasonActivationAlreadyClosed ||
-                        api_response.reason == ReasonTimestampOutOfSequence ||
-                        api_response.reason == ReasonActivationExpired) {
-                        printf("Received error reason from server. Exiting.\n");
-                        exit(0);
-                    }
-                    // Quit immediately on timeout reasons regardless of loop state
-                    if (api_response.answer == AnswerNoCry &&
-                        (api_response.reason == ReasonDetectionTimeout || api_response.reason == ReasonActivationTimeout ||
-                         api_response.reason == ReasonNoCryPatternsTimeout)) {
-                        printf("Received timeout. Exiting.\n");
-                        exit(0);
-                    }
-                    // As soon as we receive a valid translation, exit the example program.
-                    // A real device will enter again the state where it only listens to audio, until the volume threshold is exceeded again.
-                    if (api_response.answer != AnswerNoCry && api_response.answer != AnswerUnknown) {
-                        printf("Received successful cry translation. Exiting example.\n");
-                        exit(0);
-                    }
-                    // After looping, count no_cry + no_cry_detected responses and quit after 4
-                    if (has_looped && api_response.answer == AnswerNoCry && api_response.reason == ReasonNoCryDetected) {
-                        no_cry_detected_count++;
-                        printf("No cry detected after loop (%d/4).\n", no_cry_detected_count);
-                        if (no_cry_detected_count >= 4) {
-                            printf("Reached 4 no_cry_detected responses after looping. Exiting.\n");
-                            exit(0);
-                        }
-                    }
-                } else {
-                    activation_timestamp += SEND_TO_SERVER_SIZE_MS;
+        // What we do at the end of the file depends only on whether we already have a valid
+        // translation:
+        // - Still HUNTING (no valid translation yet): loop the file so the server keeps receiving
+        //   continuous real audio, which gives it the best chance to find and translate a cry. We
+        //   never pad with silence while hunting, since silence just makes the detector give up.
+        //   Bounded by MAX_LOOPS so a file with no valid cry content does not loop forever.
+        // - Already HAVE a valid translation (now collecting bonus ones from the remaining file
+        //   data, without looping): if a translation is still in progress at the end of the file,
+        //   pad it with digital silence so the server can finish it; otherwise there is no more
+        //   file data left, so we are done.
+        if (reached_eof) {
+            if (!has_valid_translation) {
+                loop_count++;
+                if (loop_count > MAX_LOOPS) {
+                    printf("Reached the end of the file with no valid translation after looping back %d times. Exiting.\n", MAX_LOOPS);
+                    break;
                 }
+                printf("Reached the end of the file with no valid translation yet. Looping back to keep hunting (%d/%d).\n", loop_count, MAX_LOOPS);
+            } else if (closed) {
+                printf("Reached the end of the file with a valid translation. Exiting.\n");
+                break;
             } else {
-                // If the activation is not already open, check if any of the audio in the buffer was above the threshold.
-                if (is_audio_above_threshold == TRUE) {
-                    // If audio was above the threshold, open the activation and send the buffer to the API, otherwise just discard this buffer.
-                    is_activation_open = TRUE;
-                    activation_timestamp = 0;
-                    api_send_audio(audio, activation_timestamp, &api_response);
-                    // If the server says that the phase is "done" or there's an error, then close the activation. Otherwise increment the timestamp.
-                    if (api_response.phase == PhaseDone || api_response.phase == PhaseError) {
-                        activation_timestamp = 0;
-                        is_activation_open = FALSE;
-                        // Quit immediately on error reasons
-                        if (api_response.reason == ReasonActivationAlreadyClosed ||
-                            api_response.reason == ReasonTimestampOutOfSequence ||
-                            api_response.reason == ReasonActivationExpired) {
-                            printf("Received error reason from server. Exiting.\n");
-                            exit(0);
-                        }
-                        // Quit immediately on timeout reasons regardless of loop state
-                        if (api_response.answer == AnswerNoCry &&
-                            (api_response.reason == ReasonDetectionTimeout || api_response.reason == ReasonActivationTimeout ||
-                             api_response.reason == ReasonNoCryPatternsTimeout)) {
-                            printf("Received timeout. Exiting.\n");
-                            exit(0);
-                        }
-                        // As soon as we receive a valid translation, exit the example program.
-                        // A real device will enter again the state where it only listens to audio, until the volume threshold is exceeded again.
-                        if (api_response.answer != AnswerNoCry && api_response.answer != AnswerUnknown) {
-                            printf("Received successful cry translation. Exiting example.\n");
-                            exit(0);
-                        }
-                        // After looping, count no_cry + no_cry_detected responses and quit after 4.
-                        // NOTE: this is a behavior useful only in this test program since we are reading from pre-recorded files
-                        // and we want to avoid infinite loops.
-                        if (has_looped && api_response.answer == AnswerNoCry && api_response.reason == ReasonNoCryDetected) {
-                            no_cry_detected_count++;
-                            printf("No cry detected after loop (%d/4).\n", no_cry_detected_count);
-                            if (no_cry_detected_count >= 4) {
-                                printf("Reached 4 no_cry_detected responses after looping. Exiting.\n");
-                                exit(0);
-                            }
-                        }
-                    } else {
-                        activation_timestamp += SEND_TO_SERVER_SIZE_MS;
-                    }
+                // A bonus translation is still in progress: pad it with digital silence (no
+                // looping) so the server can finish it. Activations always finish given enough
+                // data, so there is no need to cap how much silence we send.
+                if (!silence_announced) {
+                    printf("Reached the end of the file with a bonus translation still in progress. Sending digital silence to let it finish.\n");
+                    silence_announced = TRUE;
                 }
             }
-
-            // Reset the buffer and continue analyzing more audio
-            is_audio_above_threshold = FALSE;
-            audio_block = 0;
         }
 
-        block_position = audio + (audio_block * THRESHOLD_ANALYSIS_SIZE);
+        // While hunting for the first valid translation we loop the file (continuous real audio);
+        // once we have one we stop looping and pad with digital silence instead.
+        loop_on_eof = !has_valid_translation;
     }
 
     sf_close(audio_file);
+    api_finish();
     return 0;
 }

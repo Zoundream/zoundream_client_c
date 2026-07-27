@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <curl/curl.h>
 #include <json-c/json.h>
 #include "audio.h"
@@ -11,6 +12,11 @@ struct ResponseBody {
 };
 struct ResponseBody response;
 CURL *curl;
+
+// TEMPORARY (testing only): the full "Authorization: <user id>" header, built once per run with a
+// timestamp appended to TEST_USER_ID so every run looks like a distinct device. Remove the
+// timestamp suffix (and just use TEST_USER_ID directly) when this is no longer needed.
+static char auth_header[128];
 
 #define MAX_TIMESTAMP_LEN 30 // size of the string "x-audio-timestamp: " plus the maximum size of an uint32 converted to string, plus null termination.
 
@@ -108,6 +114,11 @@ int api_init(const char* endpoint_url)
     response.memory = malloc(1);
     response.size = 0;
 
+    // TEMPORARY (testing only): make the user id unique for each run by appending a timestamp.
+    long run_id = (long) time(NULL);
+    snprintf(auth_header, sizeof(auth_header), "Authorization: %s-%ld", TEST_USER_ID, run_id);
+    printf("Using user id: %s-%ld\n", TEST_USER_ID, run_id);
+
     curl_global_init(CURL_GLOBAL_DEFAULT);
     curl = curl_easy_init();
     if (curl) {
@@ -157,7 +168,7 @@ void api_send_audio(int16_t* audio, u_int32_t timestamp, ApiResponse* api_respon
     }
 
     struct curl_slist *list = NULL;
-    list = curl_slist_append(list, "Authorization: " TEST_USER_ID);
+    list = curl_slist_append(list, auth_header);
     list = curl_slist_append(list, "x-api-key: " API_KEY);
     list = curl_slist_append(list, "x-audio-sample-rate: 16000");
     list = curl_slist_append(list, timestamp_header);
