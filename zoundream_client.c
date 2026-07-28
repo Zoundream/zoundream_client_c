@@ -6,7 +6,7 @@
 #include "api.h"
 
 #define SEND_TO_SERVER_SIZE_MS 1000 // we send 1 second of audio to the server with every API call
-#define MAX_LOOPS 3                  // max number of times to loop back to the start looking for a valid translation, to avoid looping forever
+#define MAX_LOOPS 3                 // max number of times to loop back to the start looking for a valid translation, to avoid looping forever
 
 #define TRUE 1
 #define FALSE 0
@@ -65,16 +65,15 @@ int main(int argc, char **argv)
             activation_timestamp += SEND_TO_SERVER_SIZE_MS;
         }
 
-        // What we do at the end of the file depends only on whether we already have a valid
-        // translation:
-        // - Still HUNTING (no valid translation yet): loop the file so the server keeps receiving
+        // What we do at the end of the file depends only on whether we already have at least one valid
+        // translation or not:
+        // - NO translation yet: loop the file so the server keeps receiving
         //   continuous real audio, which gives it the best chance to find and translate a cry. We
-        //   never pad with silence while hunting, since silence just makes the detector give up.
-        //   Bounded by MAX_LOOPS so a file with no valid cry content does not loop forever.
-        // - Already HAVE a valid translation (now collecting bonus ones from the remaining file
-        //   data, without looping): if a translation is still in progress at the end of the file,
-        //   pad it with digital silence so the server can finish it; otherwise there is no more
-        //   file data left, so we are done.
+        //   never pad with silence in this case, as we want to simulate a baby continuing to cry.
+        //   This is bounded by MAX_LOOPS so a file with no valid cry content does not loop forever.
+        // - YES we have one translation: continue playing the file until the end, without looping.
+        //   If a translation is still in progress at the end of the file, pad it with digital silence
+        //   (zero values) so the server can finish it.
         if (reached_eof) {
             if (!has_valid_translation) {
                 loop_count++;
@@ -82,23 +81,23 @@ int main(int argc, char **argv)
                     printf("Reached the end of the file with no valid translation after looping back %d times. Exiting.\n", MAX_LOOPS);
                     break;
                 }
-                printf("Reached the end of the file with no valid translation yet. Looping back to keep hunting (%d/%d).\n", loop_count, MAX_LOOPS);
+                printf("Reached the end of the file with no valid translation yet. Looping back to keep searching (%d/%d).\n", loop_count, MAX_LOOPS);
             } else if (closed) {
                 printf("Reached the end of the file with a valid translation. Exiting.\n");
                 break;
             } else {
-                // A bonus translation is still in progress: pad it with digital silence (no
-                // looping) so the server can finish it. Activations always finish given enough
-                // data, so there is no need to cap how much silence we send.
+                // A translation (beyond the first one) is still in progress: pad every API request with digital silence.
+                // This allows the server to finish it cleanly. Activations always finish given enough data, so there is
+                // no need to cap how much silence we send.
                 if (!silence_announced) {
-                    printf("Reached the end of the file with a bonus translation still in progress. Sending digital silence to let it finish.\n");
+                    printf("Reached the end of the file with a translation still in progress. Sending digital silence to let it finish.\n");
                     silence_announced = TRUE;
                 }
             }
         }
 
-        // While hunting for the first valid translation we loop the file (continuous real audio);
-        // once we have one we stop looping and pad with digital silence instead.
+        // While searching for the first valid translation we loop the file (continuous real audio).
+        // When we have at least one, we stop looping and pad with digital silence instead.
         loop_on_eof = !has_valid_translation;
     }
 

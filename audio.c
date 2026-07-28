@@ -31,7 +31,7 @@ SNDFILE* audio_open(const char* file_path) {
  * When the end of the file is reached before `amount` samples have been read, *reached_eof is set
  * to 1 and the rest of the buffer is filled depending on `loop_on_eof`:
  *  - loop_on_eof != 0: the file is rewound and the remainder of the buffer is filled from the start
- *    of the file, so the audio stream stays continuous across the wrap (no silence is inserted).
+ *    of the file, so the audio stream stays continuous (no silence is inserted).
  *    Subsequent reads keep going from there, effectively looping the file forever.
  *  - loop_on_eof == 0: the remainder of the buffer is filled with zeros (digital silence), so every
  *    read past the end of the file returns pure silence.
