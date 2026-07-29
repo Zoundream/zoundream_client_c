@@ -6,13 +6,13 @@
 #
 # Usage: ./run_cries.sh [ENDPOINT_URL] [CRIES_DIR] [PER_FILE_TIMEOUT_SECONDS]
 #
-#   ENDPOINT_URL             default: https://demo.zoundream-api.com/demo
+#   ENDPOINT_URL             default: https://stage-znd-eu.zoundream-api.com/audio
 #   CRIES_DIR                default: ~/babyt/cries/momcozy-jul-24
 #   PER_FILE_TIMEOUT_SECONDS default: 600 (safety cap so a hung request can't stall the batch)
 
 set -u
 
-ENDPOINT="${1:-https://demo.zoundream-api.com/demo}"
+ENDPOINT="${1:-https://stage-znd-eu.zoundream-api.com/audio}"
 CRIES_DIR="${2:-$HOME/babyt/cries/momcozy-jul-24}"
 PER_FILE_TIMEOUT="${3:-600}"
 

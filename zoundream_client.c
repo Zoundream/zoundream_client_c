@@ -5,8 +5,7 @@
 #include "audio.h"
 #include "api.h"
 
-#define SEND_TO_SERVER_SIZE_MS 1000 // we send 1 second of audio to the server with every API call
-#define MAX_LOOPS 3                 // max number of times to loop back to the start looking for a valid translation, to avoid looping forever
+#define MAX_LOOPS 3 // max number of times to loop back to the start looking for a valid translation, to avoid looping forever
 
 #define TRUE 1
 #define FALSE 0

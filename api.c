@@ -43,6 +43,27 @@ static size_t read_response_callback(void *contents, size_t size, size_t nmemb, 
     return realsize;
 }
 
+// This demo program reads audio from the file system, but a real device will instead use a microphone.
+// By definition to read 1 second of audio from a microphone will take 1 second of real time.
+// This function helps simulate this behavior by waiting for the right amount of real time to pass before
+// sending the next buffer to the server.
+static void wait_for_send_slot()
+{
+    static struct timespec previous = { 0, 0 };
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+
+    if (previous.tv_sec != 0 || previous.tv_nsec != 0) {
+        long elapsed_ms = (now.tv_sec - previous.tv_sec) * 1000 + (now.tv_nsec - previous.tv_nsec) / 1000000;
+        long remaining_ms = SEND_TO_SERVER_SIZE_MS - elapsed_ms;
+        if (remaining_ms > 0) {
+            struct timespec pause = { remaining_ms / 1000, (remaining_ms % 1000) * 1000000L };
+            nanosleep(&pause, NULL);
+        }
+    }
+    clock_gettime(CLOCK_MONOTONIC, &previous);
+}
+
 Phase parse_phase(const char* phase) {
     if (phase == NULL) return PhaseError;
     else if (strcmp(phase, "detecting") == 0) return PhaseDetecting;
@@ -155,6 +176,8 @@ void api_finish() {
  * @param api_response a pointer to the structure where the response will be stored.
  */
 void api_send_audio(int16_t* audio, u_int32_t timestamp, ApiResponse* api_response) {
+    wait_for_send_slot();
+
     response.size = 0; // restart reading the response, overwriting the existing buffer
 
     printf("Sending audio for timestamp %d : ", timestamp);

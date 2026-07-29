@@ -8,6 +8,8 @@
 
 /* -------------------------------------------------------------------------------------------------- */
 
+#define SEND_TO_SERVER_SIZE_MS 1000 // we send 1 second of audio to the server with every API call
+
 /* The possible states of an activation */
 typedef enum {
     PhaseError = 0,         // An error has occurred, the activation should be closed
