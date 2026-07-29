@@ -13,9 +13,6 @@ struct ResponseBody {
 struct ResponseBody response;
 CURL *curl;
 
-// TEMPORARY (testing only): the full "Authorization: <user id>" header, built once per run with a
-// timestamp appended to TEST_USER_ID so every run looks like a distinct device. Remove the
-// timestamp suffix (and just use TEST_USER_ID directly) when this is no longer needed.
 static char auth_header[128];
 
 #define MAX_TIMESTAMP_LEN 30 // size of the string "x-audio-timestamp: " plus the maximum size of an uint32 converted to string, plus null termination.
@@ -135,7 +132,9 @@ int api_init(const char* endpoint_url)
     response.memory = malloc(1);
     response.size = 0;
 
-    // TEMPORARY (testing only): make the user id unique for each run by appending a timestamp.
+    // Make the user id unique for each run by appending a timestamp.
+    // We do this to ensure that at every run there are no collisions in case the previous run was interrupted.
+    // IMPORTANT: this is only for testing and in production the user ID must be unique and stable.
     long run_id = (long) time(NULL);
     snprintf(auth_header, sizeof(auth_header), "Authorization: %s-%ld", TEST_USER_ID, run_id);
     printf("Using user id: %s-%ld\n", TEST_USER_ID, run_id);
