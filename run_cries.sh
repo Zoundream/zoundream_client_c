@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 #
-# Runs the zoundream_client over every .wav file in a directory, saving the full output of each
-# run to its own log file and producing a summary report that compares the expected answers
-# (taken from the file name, e.g. "01-sleep+burp.wav") with the answers the API actually returned.
+# Rebuilds zoundream_client from the current source, then runs it over every .wav file in a
+# directory, saving the full output of each run to its own log file and producing a summary
+# report that compares the expected answers (taken from the file name, e.g.
+# "01-sleep+burp.wav") with the answers the API actually returned.
 #
-# Usage: ./run_cries.sh [ENDPOINT_URL] [CRIES_DIR] [PER_FILE_TIMEOUT_SECONDS]
+# Usage: ./run_cries.sh [CRIES_DIR] [ENDPOINT_URL]
 #
+#   CRIES_DIR                default: ./momcozy-jul-24
 #   ENDPOINT_URL             default: https://stage-znd-eu.zoundream-api.com/audio
-#   CRIES_DIR                default: ~/babyt/cries/momcozy-jul-24
-#   PER_FILE_TIMEOUT_SECONDS default: 600 (safety cap so a hung request can't stall the batch)
 
 set -u
 
-ENDPOINT="${1:-https://stage-znd-eu.zoundream-api.com/audio}"
-CRIES_DIR="${2:-$HOME/babyt/cries/momcozy-jul-24}"
-PER_FILE_TIMEOUT="${3:-600}"
+CRIES_DIR="${1:-./momcozy-jul-24}"
+ENDPOINT="${2:-https://stage-znd-eu.zoundream-api.com/audio}"
+PER_FILE_TIMEOUT="600"  # seconds
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLIENT="$SCRIPT_DIR/zoundream_client"
