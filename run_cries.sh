@@ -12,6 +12,15 @@
 
 set -u
 
+# Use Ctrl-C to abort the batch. 
+child_pid=""
+trap '
+    echo
+    echo "Interrupted, aborting batch." >&2
+    [[ -n "$child_pid" ]] && kill -TERM "$child_pid" 2>/dev/null
+    exit 130
+' INT TERM
+
 CRIES_DIR="${1:-./momcozy-jul-24}"
 ENDPOINT="${2:-https://stage-znd-eu.zoundream-api.com/audio}"
 PER_FILE_TIMEOUT="600"  # seconds
@@ -77,8 +86,12 @@ for f in "${files[@]}"; do
     log="$OUT_DIR/$stem.log"
     echo "[$total/${#files[@]}] $name ..."
 
-    timeout "$PER_FILE_TIMEOUT" "$CLIENT" "$ENDPOINT" "$f" > "$log" 2>&1
+    timeout --foreground "$PER_FILE_TIMEOUT" "$CLIENT" "$ENDPOINT" "$f" > "$log" 2>&1 &
+    child_pid=$!
+    wait "$child_pid"
     rc=$?
+    child_pid=""
+
     # zoundream_client exits with this specific code (see EXIT_AUTH_FAILED in api.h) the moment
     # the server rejects a request as unauthorized/forbidden, instead of continuing to send audio
     # that will never be accepted (authentication is either always rejected or always accepted for each key).
