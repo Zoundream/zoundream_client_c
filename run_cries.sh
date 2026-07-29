@@ -79,6 +79,14 @@ for f in "${files[@]}"; do
 
     timeout "$PER_FILE_TIMEOUT" "$CLIENT" "$ENDPOINT" "$f" > "$log" 2>&1
     rc=$?
+    # zoundream_client exits with this specific code (see EXIT_AUTH_FAILED in api.h) the moment
+    # the server rejects a request as unauthorized/forbidden, instead of continuing to send audio
+    # that will never be accepted (authentication is either always rejected or always accepted for each key).
+    if [[ $rc -eq 3 ]]; then
+        echo
+        echo "Error: authentication failed (bad or missing API key). Fix it in api.h and try again." >&2
+        exit 1
+    fi
 
     # Pull the answer out of every "done" response in the log.
     mapfile -t done_answers < <(grep '"phase":"done"' "$log" | grep -oE '"answer":"[a-z_]+"' | sed -E 's/"answer":"([a-z_]+)"/\1/')

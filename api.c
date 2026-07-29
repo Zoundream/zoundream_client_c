@@ -206,6 +206,19 @@ void api_send_audio(int16_t* audio, u_int32_t timestamp, ApiResponse* api_respon
     if (res != CURLE_OK) {
         fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
         api_response->phase = PhaseError;
+    } else {
+        // A 401/403 means the request was rejected before ever reaching the queue (almost
+        // always a wrong or missing API_KEY) and will keep being rejected for every subsequent
+        // request too, so there is no point continuing: bail out immediately and loudly instead
+        // of silently looping (the response body has no "phase" field for parse_response to
+        // recognize, so without this check the run would just carry on regardless).
+        long http_code = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+        if (http_code == 401 || http_code == 403) {
+            fprintf(stderr, "\nAuthentication failed (HTTP %ld): %s\n", http_code, response.memory);
+            fprintf(stderr, "Check API_KEY in api.h, then rebuild.\n");
+            exit(EXIT_AUTH_FAILED);
+        }
     }
 
     // The response is a block of JSON data, which we need to parse
