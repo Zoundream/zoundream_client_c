@@ -28,11 +28,19 @@ PER_FILE_TIMEOUT="600"  # seconds
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLIENT="$SCRIPT_DIR/zoundream_client"
 
-if [[ ! -x "$CLIENT" ]]; then
-    echo "Error: client binary not found or not executable: $CLIENT" >&2
-    echo "Build it first with ./build.sh" >&2
+# Always rebuild from the current source before running, so the binary can never diverge
+# from it (e.g. a stale binary left over from a previous checkout).
+echo "Building $CLIENT ..."
+if ! ( cd "$SCRIPT_DIR" && ./build.sh ); then
+    echo "Error: build failed, aborting." >&2
     exit 1
 fi
+if [[ ! -x "$CLIENT" ]]; then
+    echo "Error: build.sh did not produce an executable client binary: $CLIENT" >&2
+    exit 1
+fi
+echo
+
 if [[ ! -d "$CRIES_DIR" ]]; then
     echo "Error: cries directory not found: $CRIES_DIR" >&2
     exit 1
