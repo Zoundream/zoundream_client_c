@@ -1,4 +1,5 @@
 #include "audio.h"
+#include "zc_log.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -13,14 +14,15 @@ SNDFILE* audio_open(const char* file_path) {
     info.format = 0;
     SNDFILE* file = sf_open(file_path, SFM_READ, &info);
     if (file == NULL) {
-        printf("Failed to open file.\n");
+        zc_log("Failed to open file.");
         return 0;
     }
 
-    printf("Audio file opened: channels %d, sample rate %d\n", info.channels, info.samplerate);
-    printf("  Total frames: %ld (duration: %.2f seconds)\n", info.frames, (double)info.frames / info.samplerate);
+    zc_log("Audio file opened: channels %d, sample rate %d", info.channels, info.samplerate);
+    zc_log("  Total frames: %ld (duration: %.2f seconds)", info.frames, (double)info.frames / info.samplerate);
     if (info.channels != 1 || info.samplerate != 16000) {
-        printf("Format not compatible. Can only accept single channel 16KHz files.\n");
+        zc_log("Format not compatible. Can only accept single channel 16KHz files.");
+        sf_close(file);
         return 0;
     }
     return file;
@@ -48,7 +50,7 @@ int audio_read(SNDFILE* file, int16_t* buffer, size_t amount, int loop_on_eof, i
     *reached_eof = 0;
     sf_count_t read = sf_read_short(file, buffer, amount);
     if (read < 0) {
-        printf("Error: failed to read from the audio file.\n");
+        zc_log("Error: failed to read from the audio file.");
         return 0;
     }
     if ((size_t) read < amount) {

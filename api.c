@@ -5,6 +5,7 @@
 #include <json-c/json.h>
 #include "audio.h"
 #include "api.h"
+#include "zc_log.h"
 
 struct ResponseBody {
   char *memory;
@@ -14,10 +15,22 @@ struct ResponseBody response;
 CURL *curl;
 
 static char auth_header[128];
+static char api_key_header[160];
+
+static int (*abort_check)(void* ctx) = NULL;
+static void* abort_check_ctx = NULL;
+
+// Timestamp of the previous send, used by the pacing code. Reset by api_init.
+static struct timespec previous_send = { 0, 0 };
 
 #define MAX_TIMESTAMP_LEN 30 // size of the string "x-audio-timestamp: " plus the maximum size of an uint32 converted to string, plus null termination.
 
 /* ------------------------------ Internal functions ----------------------------------- */
+
+static int aborted()
+{
+    return abort_check != NULL && abort_check(abort_check_ctx) != 0;
+}
 
 static size_t read_response_callback(void *contents, size_t size, size_t nmemb, void *userp)
 {
@@ -40,25 +53,34 @@ static size_t read_response_callback(void *contents, size_t size, size_t nmemb, 
     return realsize;
 }
 
+// Polled by curl during the transfer; returning non-zero aborts the transfer.
+static int transfer_progress_callback(void *clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow)
+{
+    (void)clientp; (void)dltotal; (void)dlnow; (void)ultotal; (void)ulnow;
+    return aborted() ? 1 : 0;
+}
+
 // This demo program reads audio from the file system, but a real device will instead use a microphone.
 // By definition to read 1 second of audio from a microphone will take 1 second of real time.
 // This function helps simulate this behavior by waiting for the right amount of real time to pass before
 // sending the next buffer to the server.
 static void wait_for_send_slot()
 {
-    static struct timespec previous = { 0, 0 };
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
 
-    if (previous.tv_sec != 0 || previous.tv_nsec != 0) {
-        long elapsed_ms = (now.tv_sec - previous.tv_sec) * 1000 + (now.tv_nsec - previous.tv_nsec) / 1000000;
+    if (previous_send.tv_sec != 0 || previous_send.tv_nsec != 0) {
+        long elapsed_ms = (now.tv_sec - previous_send.tv_sec) * 1000 + (now.tv_nsec - previous_send.tv_nsec) / 1000000;
         long remaining_ms = SEND_TO_SERVER_SIZE_MS - elapsed_ms;
-        if (remaining_ms > 0) {
-            struct timespec pause = { remaining_ms / 1000, (remaining_ms % 1000) * 1000000L };
+        // Wait in small slices so an abort request (e.g. the GUI Stop button) is honored quickly.
+        while (remaining_ms > 0 && !aborted()) {
+            long slice_ms = remaining_ms < 50 ? remaining_ms : 50;
+            struct timespec pause = { slice_ms / 1000, (slice_ms % 1000) * 1000000L };
             nanosleep(&pause, NULL);
+            remaining_ms -= slice_ms;
         }
     }
-    clock_gettime(CLOCK_MONOTONIC, &previous);
+    clock_gettime(CLOCK_MONOTONIC, &previous_send);
 }
 
 Phase parse_phase(const char* phase) {
@@ -93,7 +115,7 @@ Reason parse_reason(const char* reason) {
     else return ReasonUnknown;
 }
 
-int parse_response(ApiResponse* api_response) {
+void parse_response(ApiResponse* api_response) {
     struct json_object *parsed_json;
     struct json_object *phase;
     struct json_object *answer;
@@ -117,6 +139,8 @@ int parse_response(ApiResponse* api_response) {
     } else {
         api_response->reason = ReasonUnknown;
     }
+
+    json_object_put(parsed_json);
 }
 
 
@@ -124,20 +148,25 @@ int parse_response(ApiResponse* api_response) {
 
 /** Initializes the HTTP library.
  *
- * @params endpoint_url: the URL of the endpoint to use for all API calls
+ * @param endpoint_url the URL of the endpoint to use for all API calls
+ * @param api_key the API key assigned to your company
+ * @param user_id the base user id; a per-run timestamp is appended to it (see below)
  * @returns 1 if successful, otherwise 0
  */
-int api_init(const char* endpoint_url)
+int api_init(const char* endpoint_url, const char* api_key, const char* user_id)
 {
     response.memory = malloc(1);
     response.size = 0;
+    previous_send.tv_sec = 0;
+    previous_send.tv_nsec = 0;
 
     // Make the user id unique for each run by appending a timestamp.
     // We do this to ensure that at every run there are no collisions in case the previous run was interrupted.
     // IMPORTANT: this is only for testing and in production the user ID must be unique and stable.
     long run_id = (long) time(NULL);
-    snprintf(auth_header, sizeof(auth_header), "Authorization: %s-%ld", TEST_USER_ID, run_id);
-    printf("Using user id: %s-%ld\n", TEST_USER_ID, run_id);
+    snprintf(auth_header, sizeof(auth_header), "Authorization: %s-%ld", user_id, run_id);
+    zc_log("Using user id: %s-%ld", user_id, run_id);
+    snprintf(api_key_header, sizeof(api_key_header), "x-api-key: %s", api_key);
 
     curl_global_init(CURL_GLOBAL_DEFAULT);
     curl = curl_easy_init();
@@ -146,6 +175,8 @@ int api_init(const char* endpoint_url)
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&response);
         curl_easy_setopt(curl, CURLOPT_URL, endpoint_url);
         curl_easy_setopt(curl, CURLOPT_POST, 1);
+        curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, transfer_progress_callback);
+        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
         return 1;
     } else {
         return 0;
@@ -157,8 +188,14 @@ int api_init(const char* endpoint_url)
  */
 void api_finish() {
     free(response.memory);
+    response.memory = NULL;
     curl_easy_cleanup(curl);
     curl_global_cleanup();
+}
+
+void api_set_abort_check(int (*check)(void* ctx), void* ctx) {
+    abort_check = check;
+    abort_check_ctx = ctx;
 }
 
 /** Sends a block of audio to the server, with the specified timestamp, and waits for a response
@@ -175,23 +212,29 @@ void api_finish() {
  * @param api_response a pointer to the structure where the response will be stored.
  */
 void api_send_audio(int16_t* audio, u_int32_t timestamp, ApiResponse* api_response) {
+    // Start from a clean, defined state so that a failed request can never leave stale values
+    // (e.g. the answer of the previous response) in api_response.
+    api_response->phase = PhaseError;
+    api_response->answer = AnswerUnknown;
+    api_response->reason = ReasonUnknown;
+
     wait_for_send_slot();
 
     response.size = 0; // restart reading the response, overwriting the existing buffer
 
-    printf("Sending audio for timestamp %d : ", timestamp);
+    zc_log("Sending audio for timestamp %u", timestamp);
     CURLcode res;
 
     char timestamp_header [MAX_TIMESTAMP_LEN];
     int result = snprintf(timestamp_header, MAX_TIMESTAMP_LEN - 1, "x-audio-timestamp: %u", timestamp);
-    if (result < 0 && result >= MAX_TIMESTAMP_LEN) {
-        fprintf(stderr, "Failed to convert timestamp to string: %u => %d\n", timestamp, result);
-        api_response->phase = PhaseError;
+    if (result < 0 || result >= MAX_TIMESTAMP_LEN) {
+        zc_log("Failed to convert timestamp to string: %u => %d", timestamp, result);
+        return;
     }
 
     struct curl_slist *list = NULL;
     list = curl_slist_append(list, auth_header);
-    list = curl_slist_append(list, "x-api-key: " API_KEY);
+    list = curl_slist_append(list, api_key_header);
     list = curl_slist_append(list, "x-audio-sample-rate: 16000");
     list = curl_slist_append(list, timestamp_header);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, list);
@@ -203,25 +246,54 @@ void api_send_audio(int16_t* audio, u_int32_t timestamp, ApiResponse* api_respon
     curl_slist_free_all(list);
 
     if (res != CURLE_OK) {
-        fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
-        api_response->phase = PhaseError;
-    } else {
-        // A 401/403 means the request was rejected before ever reaching the queue (almost
-        // always a wrong or missing API_KEY) and will keep being rejected for every subsequent
-        // request too, so there is no point continuing: bail out immediately and loudly instead
-        // of silently looping (the response body has no "phase" field for parse_response to
-        // recognize, so without this check the run would just carry on regardless).
-        long http_code = 0;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-        if (http_code == 401 || http_code == 403) {
-            fprintf(stderr, "\nAuthentication failed (HTTP %ld): %s\n", http_code, response.memory);
-            fprintf(stderr, "Check API_KEY in api.h, then rebuild.\n");
-            exit(EXIT_AUTH_FAILED);
-        }
+        zc_log("curl_easy_perform() failed: %s", curl_easy_strerror(res));
+        return;
+    }
+
+    // A 401/403 means the request was rejected before ever reaching the queue (almost
+    // always a wrong or missing API key) and will keep being rejected for every subsequent
+    // request too, so there is no point continuing: report it so the caller can bail out
+    // immediately and loudly instead of silently looping (the response body has no "phase"
+    // field for parse_response to recognize, so without this check the run would just carry
+    // on regardless).
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+    if (http_code == 401 || http_code == 403) {
+        zc_log("Authentication failed (HTTP %ld): %s", http_code, response.memory);
+        zc_log("Check your API key.");
+        api_response->reason = ReasonAuthFailed;
+        return;
     }
 
     // The response is a block of JSON data, which we need to parse
     parse_response(api_response);
 
-    printf("Response (%lu bytes): %s\n", (unsigned long) response.size, response.memory);
+    zc_log("Response (%lu bytes): %s", (unsigned long) response.size, response.memory);
+}
+
+const char* api_answer_name(Answer answer) {
+    switch (answer) {
+        case AnswerNoCry: return "no cry";
+        case AnswerBurp: return "burp";
+        case AnswerSleep: return "sleep";
+        case AnswerHungry: return "hungry";
+        case AnswerUncomfortable: return "uncomfortable";
+        case AnswerPain: return "pain";
+        default: return "unknown";
+    }
+}
+
+const char* api_reason_name(Reason reason) {
+    switch (reason) {
+        case ReasonNoCryDetected: return "no valid cry patterns";
+        case ReasonDetectionTimeout: return "detection timeout";
+        case ReasonActivationTimeout: return "activation timeout";
+        case ReasonNoCryPatternsTimeout: return "no cry patterns timeout";
+        case ReasonActivationAlreadyClosed: return "activation already closed";
+        case ReasonTimestampOutOfSequence: return "timestamp out of sequence";
+        case ReasonActivationExpired: return "activation expired";
+        case ReasonCryTranslated: return "cry translated";
+        case ReasonAuthFailed: return "authentication failed";
+        default: return "unknown";
+    }
 }

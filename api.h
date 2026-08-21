@@ -1,5 +1,8 @@
 #ifndef __API__
-#define __API___
+#define __API__
+
+#include <stdint.h>
+#include <sys/types.h>
 
 /* ------------------------------ Parameters that can be changed ----------------------------------- */
 
@@ -43,7 +46,8 @@ typedef enum {
     ReasonActivationAlreadyClosed = 5,
     ReasonTimestampOutOfSequence = 6,
     ReasonActivationExpired = 7,
-    ReasonCryTranslated = 8
+    ReasonCryTranslated = 8,
+    ReasonAuthFailed = 9      // Set locally (not by the server) when a request is rejected with HTTP 401/403
 } Reason;
 
 typedef struct {
@@ -52,8 +56,16 @@ typedef struct {
    Reason reason;  // the reason for the answer (if phase is PhaseDone, otherwise needs to be ignored)
 } ApiResponse ;
 
-int api_init(const char* endpoint);
+int api_init(const char* endpoint, const char* api_key, const char* user_id);
 void api_send_audio(int16_t* audio, u_int32_t timestamp, ApiResponse* api_response);
 void api_finish();
+
+/* Optional: when set, the check is polled during network transfers and pacing waits; returning
+ * non-zero aborts them early. Used by the GUI to make its Stop button responsive. */
+void api_set_abort_check(int (*check)(void* ctx), void* ctx);
+
+/* Human readable names for the enums above, mainly for logging and UI purposes. */
+const char* api_answer_name(Answer answer);
+const char* api_reason_name(Reason reason);
 
 #endif
