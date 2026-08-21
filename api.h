@@ -8,6 +8,14 @@
 
 /* -------------------------------------------------------------------------------------------------- */
 
+#define SEND_TO_SERVER_SIZE_MS 1000 // we send 1 second of audio to the server with every API call
+
+// Process exit code used when the server rejects a request as unauthorized/forbidden (most likely
+// API_KEY above is wrong or missing). Distinct from the other exit codes already in use (1: init
+// failure, 2: usage/bad file) so callers (e.g. run_cries.sh) can detect it specifically and abort
+// immediately instead of continuing to send audio that will never be accepted.
+#define EXIT_AUTH_FAILED 3
+
 /* The possible states of an activation */
 typedef enum {
     PhaseError = 0,         // An error has occurred, the activation should be closed

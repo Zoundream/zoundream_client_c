@@ -6,7 +6,6 @@
 #include "audio.h"
 #include "api.h"
 
-#define SEND_TO_SERVER_SIZE_MS 1000 // we send 1 second of audio to the server with every API call
 #define SAMPLE_RATE 16000           // this is the number of samples in 1 second of audio
 #define BLOCKS_IN_ONE_SECOND 10     // we analyze the audio every 100 ms, so we do 10 analysis in each second
 #define THRESHOLD_ANALYSIS_SIZE (SAMPLE_RATE / BLOCKS_IN_ONE_SECOND)

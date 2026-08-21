@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <curl/curl.h>
 #include <json-c/json.h>
 #include "audio.h"
@@ -11,6 +12,8 @@ struct ResponseBody {
 };
 struct ResponseBody response;
 CURL *curl;
+
+static char auth_header[128];
 
 #define MAX_TIMESTAMP_LEN 30 // size of the string "x-audio-timestamp: " plus the maximum size of an uint32 converted to string, plus null termination.
 
@@ -35,6 +38,27 @@ static size_t read_response_callback(void *contents, size_t size, size_t nmemb, 
     mem->memory[mem->size] = 0;
 
     return realsize;
+}
+
+// This demo program reads audio from the file system, but a real device will instead use a microphone.
+// By definition to read 1 second of audio from a microphone will take 1 second of real time.
+// This function helps simulate this behavior by waiting for the right amount of real time to pass before
+// sending the next buffer to the server.
+static void wait_for_send_slot()
+{
+    static struct timespec previous = { 0, 0 };
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+
+    if (previous.tv_sec != 0 || previous.tv_nsec != 0) {
+        long elapsed_ms = (now.tv_sec - previous.tv_sec) * 1000 + (now.tv_nsec - previous.tv_nsec) / 1000000;
+        long remaining_ms = SEND_TO_SERVER_SIZE_MS - elapsed_ms;
+        if (remaining_ms > 0) {
+            struct timespec pause = { remaining_ms / 1000, (remaining_ms % 1000) * 1000000L };
+            nanosleep(&pause, NULL);
+        }
+    }
+    clock_gettime(CLOCK_MONOTONIC, &previous);
 }
 
 Phase parse_phase(const char* phase) {
@@ -108,6 +132,13 @@ int api_init(const char* endpoint_url)
     response.memory = malloc(1);
     response.size = 0;
 
+    // Make the user id unique for each run by appending a timestamp.
+    // We do this to ensure that at every run there are no collisions in case the previous run was interrupted.
+    // IMPORTANT: this is only for testing and in production the user ID must be unique and stable.
+    long run_id = (long) time(NULL);
+    snprintf(auth_header, sizeof(auth_header), "Authorization: %s-%ld", TEST_USER_ID, run_id);
+    printf("Using user id: %s-%ld\n", TEST_USER_ID, run_id);
+
     curl_global_init(CURL_GLOBAL_DEFAULT);
     curl = curl_easy_init();
     if (curl) {
@@ -144,6 +175,8 @@ void api_finish() {
  * @param api_response a pointer to the structure where the response will be stored.
  */
 void api_send_audio(int16_t* audio, u_int32_t timestamp, ApiResponse* api_response) {
+    wait_for_send_slot();
+
     response.size = 0; // restart reading the response, overwriting the existing buffer
 
     printf("Sending audio for timestamp %d : ", timestamp);
@@ -157,7 +190,7 @@ void api_send_audio(int16_t* audio, u_int32_t timestamp, ApiResponse* api_respon
     }
 
     struct curl_slist *list = NULL;
-    list = curl_slist_append(list, "Authorization: " TEST_USER_ID);
+    list = curl_slist_append(list, auth_header);
     list = curl_slist_append(list, "x-api-key: " API_KEY);
     list = curl_slist_append(list, "x-audio-sample-rate: 16000");
     list = curl_slist_append(list, timestamp_header);
@@ -172,6 +205,19 @@ void api_send_audio(int16_t* audio, u_int32_t timestamp, ApiResponse* api_respon
     if (res != CURLE_OK) {
         fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
         api_response->phase = PhaseError;
+    } else {
+        // A 401/403 means the request was rejected before ever reaching the queue (almost
+        // always a wrong or missing API_KEY) and will keep being rejected for every subsequent
+        // request too, so there is no point continuing: bail out immediately and loudly instead
+        // of silently looping (the response body has no "phase" field for parse_response to
+        // recognize, so without this check the run would just carry on regardless).
+        long http_code = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+        if (http_code == 401 || http_code == 403) {
+            fprintf(stderr, "\nAuthentication failed (HTTP %ld): %s\n", http_code, response.memory);
+            fprintf(stderr, "Check API_KEY in api.h, then rebuild.\n");
+            exit(EXIT_AUTH_FAILED);
+        }
     }
 
     // The response is a block of JSON data, which we need to parse
