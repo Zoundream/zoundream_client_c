@@ -59,6 +59,11 @@ if [ ! -f $BUILD/libimgui.a ]; then
     ar rcs $BUILD/libimgui.a $BUILD/imgui*.o
 fi
 
+# ---- tinyfiledialogs (native file dialogs) ----
+if [ ! -f $BUILD/tinyfiledialogs.o ]; then
+    gcc $CFLAGS -c $VENDOR/tinyfiledialogs/tinyfiledialogs.c -o $BUILD/tinyfiledialogs.o
+fi
+
 # ---- Client core (from the repository root) ----
 for f in api audio client_core zc_log third_party/cJSON; do
     gcc $CFLAGS `curl-config --cflags` \
@@ -78,8 +83,8 @@ GL_LIB=$([ -e /usr/lib/x86_64-linux-gnu/libGL.so ] && echo "-lGL" || find_lib -l
 
 # ---- The GUI itself ----
 echo "Compiling and linking zoundream_gui..."
-g++ $CFLAGS -I$CORE -I$VENDOR/imgui -I$VENDOR/imgui/backends -I$VENDOR/glfw/include \
-    main.cpp $BUILD/core_*.o $BUILD/libimgui.a $BUILD/libglfw3.a \
+g++ $CFLAGS -I$CORE -I$VENDOR/imgui -I$VENDOR/imgui/backends -I$VENDOR/glfw/include -I$VENDOR/tinyfiledialogs \
+    main.cpp $BUILD/core_*.o $BUILD/tinyfiledialogs.o $BUILD/libimgui.a $BUILD/libglfw3.a \
     `curl-config --libs` \
     $X11_LIB $GL_LIB -lm -lpthread -ldl \
     -o zoundream_gui

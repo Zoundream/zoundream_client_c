@@ -63,6 +63,11 @@ if [ ! -f $BUILD/libimgui.a ]; then
     x86_64-w64-mingw32-ar rcs $BUILD/libimgui.a $BUILD/imgui*.o
 fi
 
+# ---- tinyfiledialogs (native file dialogs) ----
+if [ ! -f $BUILD/tinyfiledialogs.o ]; then
+    $CC $CFLAGS -c $VENDOR/tinyfiledialogs/tinyfiledialogs.c -o $BUILD/tinyfiledialogs.o
+fi
+
 # ---- Client core (from the repository root) ----
 for f in api audio client_core zc_log third_party/cJSON; do
     $CC $CFLAGS -DCURL_STATICLIB -I$DEPS/include \
@@ -71,13 +76,13 @@ done
 
 # ---- The GUI itself ----
 echo "Compiling and linking zoundream_gui.exe..."
-$CXX $CFLAGS -DCURL_STATICLIB -I$CORE -I$VENDOR/imgui -I$VENDOR/imgui/backends -I$VENDOR/glfw/include \
+$CXX $CFLAGS -DCURL_STATICLIB -I$CORE -I$VENDOR/imgui -I$VENDOR/imgui/backends -I$VENDOR/glfw/include -I$VENDOR/tinyfiledialogs \
     -c main.cpp -o $BUILD/main.o
 $CXX -static -mwindows \
-    $BUILD/main.o $BUILD/core_*.o $BUILD/libimgui.a $BUILD/libglfw3.a \
+    $BUILD/main.o $BUILD/core_*.o $BUILD/tinyfiledialogs.o $BUILD/libimgui.a $BUILD/libglfw3.a \
     $DEPS/lib/libcurl.a \
     -lpthread -lws2_32 -lcrypt32 -lbcrypt -ladvapi32 \
-    -lopengl32 -lgdi32 -luser32 -lshell32 -lole32 \
+    -lopengl32 -lgdi32 -luser32 -lshell32 -lole32 -lcomdlg32 \
     -o zoundream_gui.exe
 
 echo "Built gui/zoundream_gui.exe"
