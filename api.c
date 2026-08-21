@@ -2,7 +2,7 @@
 #include <string.h>
 #include <time.h>
 #include <curl/curl.h>
-#include <json-c/json.h>
+#include "third_party/cJSON.h"
 #include "audio.h"
 #include "api.h"
 #include "zc_log.h"
@@ -116,31 +116,26 @@ Reason parse_reason(const char* reason) {
 }
 
 void parse_response(ApiResponse* api_response) {
-    struct json_object *parsed_json;
-    struct json_object *phase;
-    struct json_object *answer;
-    struct json_object *reason;
+    cJSON* parsed_json = cJSON_Parse(response.memory);
 
-    parsed_json = json_tokener_parse(response.memory);
-
-    if (json_object_object_get_ex(parsed_json, "phase", &phase)) {
-        const char* phase_value = json_object_get_string(phase);
-        api_response->phase = parse_phase(phase_value);
+    const cJSON* phase = cJSON_GetObjectItemCaseSensitive(parsed_json, "phase");
+    if (cJSON_IsString(phase)) {
+        api_response->phase = parse_phase(phase->valuestring);
     }
 
-    if (json_object_object_get_ex(parsed_json, "answer", &answer)) {
-        const char *answer_value = json_object_get_string(answer);
-        api_response->answer = parse_answer(answer_value);
+    const cJSON* answer = cJSON_GetObjectItemCaseSensitive(parsed_json, "answer");
+    if (cJSON_IsString(answer)) {
+        api_response->answer = parse_answer(answer->valuestring);
     }
 
-    if (json_object_object_get_ex(parsed_json, "reason", &reason)) {
-        const char *reason_value = json_object_get_string(reason);
-        api_response->reason = parse_reason(reason_value);
+    const cJSON* reason = cJSON_GetObjectItemCaseSensitive(parsed_json, "reason");
+    if (cJSON_IsString(reason)) {
+        api_response->reason = parse_reason(reason->valuestring);
     } else {
         api_response->reason = ReasonUnknown;
     }
 
-    json_object_put(parsed_json);
+    cJSON_Delete(parsed_json);
 }
 
 
@@ -211,7 +206,7 @@ void api_set_abort_check(int (*check)(void* ctx), void* ctx) {
  * @param timestamp the timestamp (relative to the start of the activation) of the audio
  * @param api_response a pointer to the structure where the response will be stored.
  */
-void api_send_audio(int16_t* audio, u_int32_t timestamp, ApiResponse* api_response) {
+void api_send_audio(int16_t* audio, uint32_t timestamp, ApiResponse* api_response) {
     // Start from a clean, defined state so that a failed request can never leave stale values
     // (e.g. the answer of the previous response) in api_response.
     api_response->phase = PhaseError;

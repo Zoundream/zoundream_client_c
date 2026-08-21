@@ -60,9 +60,9 @@ if [ ! -f $BUILD/libimgui.a ]; then
 fi
 
 # ---- Client core (from the repository root) ----
-for f in api audio client_core zc_log; do
-    gcc $CFLAGS `curl-config --cflags` `pkg-config json-c sndfile --cflags` \
-        -I$CORE -c $CORE/$f.c -o $BUILD/core_$f.o
+for f in api audio client_core zc_log third_party/cJSON; do
+    gcc $CFLAGS `curl-config --cflags` \
+        -I$CORE -c $CORE/$f.c -o $BUILD/core_$(basename $f).o
 done
 
 # ---- Link libraries that may lack a .so dev symlink on this machine ----
@@ -80,7 +80,7 @@ GL_LIB=$([ -e /usr/lib/x86_64-linux-gnu/libGL.so ] && echo "-lGL" || find_lib -l
 echo "Compiling and linking zoundream_gui..."
 g++ $CFLAGS -I$CORE -I$VENDOR/imgui -I$VENDOR/imgui/backends -I$VENDOR/glfw/include \
     main.cpp $BUILD/core_*.o $BUILD/libimgui.a $BUILD/libglfw3.a \
-    `curl-config --libs` `pkg-config json-c sndfile --libs` \
+    `curl-config --libs` \
     $X11_LIB $GL_LIB -lm -lpthread -ldl \
     -o zoundream_gui
 

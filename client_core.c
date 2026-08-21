@@ -30,7 +30,7 @@ RunResult client_run(const RunOptions* options, const RunCallbacks* callbacks)
     // Initialize the HTTP and audio modules, and if any of them fails just quit
     if (api_init(options->endpoint_url, options->api_key, options->user_id) != 1) return RunInitFailed;
     zc_log("Processing file: %s", options->audio_file_path);
-    SNDFILE* audio_file = audio_open(options->audio_file_path);
+    AudioFile* audio_file = audio_open(options->audio_file_path);
     if (audio_file == 0) {
         api_finish();
         return RunFileError;
@@ -115,7 +115,7 @@ RunResult client_run(const RunOptions* options, const RunCallbacks* callbacks)
         loop_on_eof = !has_valid_translation;
     }
 
-    sf_close(audio_file);
+    audio_close(audio_file);
     api_finish();
     return result;
 }

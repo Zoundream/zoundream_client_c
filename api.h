@@ -2,7 +2,6 @@
 #define __API__
 
 #include <stdint.h>
-#include <sys/types.h>
 
 /* ------------------------------ Parameters that can be changed ----------------------------------- */
 
@@ -57,7 +56,7 @@ typedef struct {
 } ApiResponse ;
 
 int api_init(const char* endpoint, const char* api_key, const char* user_id);
-void api_send_audio(int16_t* audio, u_int32_t timestamp, ApiResponse* api_response);
+void api_send_audio(int16_t* audio, uint32_t timestamp, ApiResponse* api_response);
 void api_finish();
 
 /* Optional: when set, the check is polled during network transfers and pacing waits; returning
