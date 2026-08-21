@@ -3,13 +3,12 @@
 
 #include "api.h"
 
-/* The client session logic (read audio, gate it, send it to the API, decide when to loop
- * the file and when to stop), extracted so that both the command line client and the GUI
- * run exactly the same code.
+/* The client session logic (read audio, send it to the API, decide when to loop the file
+ * and when to stop), extracted so that both the command line client and the GUI run
+ * exactly the same code.
  */
 
-#define DEFAULT_GATE_THRESHOLD -20.0 // only blocks of audio where at least some segments pass this threshold will open an activation
-#define DEFAULT_MAX_LOOPS 3          // max number of times to loop back to the start looking for a valid translation, to avoid looping forever
+#define DEFAULT_MAX_LOOPS 3 // max number of times to loop back to the start looking for a valid translation, to avoid looping forever
 
 typedef enum {
     RunFinished = 0,   // the session reached a natural end (see on_translation for whether a cry was translated)
@@ -24,14 +23,12 @@ typedef struct {
     const char* api_key;
     const char* user_id;
     const char* audio_file_path;
-    double gate_threshold; // in dB, see DEFAULT_GATE_THRESHOLD
-    int gate_disabled;     // if non-zero the gate is bypassed and all audio is sent
-    int max_loops;         // see DEFAULT_MAX_LOOPS
+    int max_loops; // see DEFAULT_MAX_LOOPS
 } RunOptions;
 
 /* All callbacks are optional (may be NULL) and are invoked from the thread that called client_run. */
 typedef struct {
-    int (*should_stop)(void* ctx);  // polled between audio blocks; return non-zero to cancel the run
+    int (*should_stop)(void* ctx);  // polled between audio buffers; return non-zero to cancel the run
     void (*on_translation)(void* ctx, Answer answer, Reason reason); // called for every valid translation received
     void* ctx;
 } RunCallbacks;

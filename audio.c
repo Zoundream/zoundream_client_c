@@ -2,8 +2,6 @@
 #include "zc_log.h"
 #include <stdio.h>
 #include <string.h>
-#include <math.h>
-#include <float.h>
 
 /** Opens an audio file for reading.
  *
@@ -69,26 +67,4 @@ int audio_read(SNDFILE* file, int16_t* buffer, size_t amount, int loop_on_eof, i
         }
     }
     return 1;
-}
-
-/** Calculates the RMS of a block of audio
- * This implements the threshold calculation formula as described in the documentation.
- *
- * @param buffer: the audio buffer
- * @param size: the size of the buffer
- * @returns the RMS of the block of audio, in decibels
- */
-int audio_calculate_rms(int16_t* buffer, size_t size) {
-    double sum;
-
-    for (int i = 0; i < size; i++) {
-        double value = ((double) buffer[i]) / 32768;
-        value = value * value;
-        sum += value;
-    }
-
-    double mean = sum / size;
-    double rms = sqrtf(mean);
-    double rms_db = 20 * log10f(rms + FLT_EPSILON);
-    return rms_db;
 }
