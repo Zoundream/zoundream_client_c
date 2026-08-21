@@ -53,6 +53,8 @@ typedef struct {
    Phase phase;    // the current state of the activation
    Answer answer;  // the answer for the translation (if phase is PhaseDone, otherwise needs to be ignored)
    Reason reason;  // the reason for the answer (if phase is PhaseDone, otherwise needs to be ignored)
+   int request_failed; // non-zero when the request itself failed (network error, or an HTTP error
+                       // with no understandable body) rather than the server answering something
 } ApiResponse ;
 
 int api_init(const char* endpoint, const char* api_key, const char* user_id);

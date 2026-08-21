@@ -25,6 +25,8 @@ RunResult client_run(const RunOptions* options, const RunCallbacks* callbacks)
     int reached_eof = FALSE;
     int loop_count = 0;
     int silence_announced = FALSE; // whether we have already logged that we are padding with silence
+    int silence_seconds = 0;       // how many seconds of digital silence have been sent so far
+    int failed_requests = 0;       // consecutive failed requests (reset by every request that gets through)
     int loop_on_eof = TRUE;        // whether audio_read should loop the file (vs pad silence) at EOF
 
     // Open and validate the audio file before anything is sent to the API
@@ -76,6 +78,20 @@ RunResult client_run(const RunOptions* options, const RunCallbacks* callbacks)
             break;
         }
 
+        // A single failed request is tolerated (the activation is closed and the audio that
+        // follows opens a new one), but if nothing gets through the endpoint is unreachable
+        // or broken and there is no point playing the rest of the file against it.
+        if (api_response.request_failed) {
+            failed_requests++;
+            if (failed_requests >= MAX_REQUEST_FAILURES) {
+                zc_log("%d requests in a row failed. Giving up on this file.", failed_requests);
+                result = RunNetworkError;
+                break;
+            }
+        } else {
+            failed_requests = 0;
+        }
+
         int closed = (api_response.phase == PhaseDone || api_response.phase == PhaseError);
 
         if (closed) {
@@ -119,12 +135,18 @@ RunResult client_run(const RunOptions* options, const RunCallbacks* callbacks)
                 zc_log("Reached the end of the file with a valid translation. Exiting.");
                 break;
             } else {
-                // A translation (beyond the first one) is still in progress: pad every API request with digital silence.
-                // This allows the server to finish it cleanly. Activations always finish given enough data, so there is
-                // no need to cap how much silence we send.
+                // An activation is still in progress: pad every API request with digital silence to
+                // allow the server to finish it cleanly. This is bounded by MAX_SILENCE_SECONDS
+                // because the server may never close an activation that only receives silence.
                 if (!silence_announced) {
                     zc_log("Reached the end of the file with a translation still in progress. Sending digital silence to let it finish.");
                     silence_announced = TRUE;
+                    silence_seconds = 0;
+                }
+                silence_seconds++;
+                if (silence_seconds >= MAX_SILENCE_SECONDS) {
+                    zc_log("The server did not close the activation after %d seconds of silence. Exiting.", MAX_SILENCE_SECONDS);
+                    break;
                 }
             }
         }

@@ -28,6 +28,7 @@ int main(int argc, char **argv)
         case RunBadFormat: return 2;
         case RunTooShort: return 2;
         case RunAuthFailed: return EXIT_AUTH_FAILED;
+        case RunNetworkError: return 4;
         default: return 1;
     }
 }

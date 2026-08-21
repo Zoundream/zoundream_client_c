@@ -365,6 +365,7 @@ static void entry_status(const FileEntry& entry, std::string* text, ImVec4* colo
         case RunBadFormat: *text = "invalid audio format"; *color = red; break;
         case RunTooShort: { char b[48]; snprintf(b, sizeof(b), "too short (less than %ds)", MIN_AUDIO_SECONDS); *text = b; *color = red; } break;
         case RunFileError: *text = "could not open file"; *color = red; break;
+        case RunNetworkError: *text = "network error"; *color = red; break;
         case RunAuthFailed: *text = "authentication failed"; *color = red; break;
         case RunInitFailed: *text = "network setup failed"; *color = red; break;
         case RunCancelled: *text = "stopped"; *color = gray; break;
@@ -491,9 +492,8 @@ static void draw_ui()
     }
 
     field_label("API key");
-    float show_width = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x +
-                       ImGui::CalcTextSize("Show").x + ImGui::GetStyle().ItemSpacing.x * 2;
-    ImGui::SetNextItemWidth(-show_width);
+    // Keys are short (~16-24 characters), no need for a full-width field
+    ImGui::SetNextItemWidth(ImGui::CalcTextSize("znd-0000000000000000000000000").x);
     ImGui::InputText("##api_key", app.api_key, sizeof(app.api_key),
                      app.show_api_key ? ImGuiInputTextFlags_None : ImGuiInputTextFlags_Password);
     ImGui::SameLine();

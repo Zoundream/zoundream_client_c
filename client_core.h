@@ -8,17 +8,20 @@
  * exactly the same code.
  */
 
-#define DEFAULT_MAX_LOOPS 3   // max number of times to loop back to the start looking for a valid translation, to avoid looping forever
-#define MIN_AUDIO_SECONDS 10  // files shorter than this are rejected before anything is sent
+#define DEFAULT_MAX_LOOPS 3       // max number of times to loop back to the start looking for a valid translation, to avoid looping forever
+#define MIN_AUDIO_SECONDS 10      // files shorter than this are rejected before anything is sent
+#define MAX_REQUEST_FAILURES 5    // consecutive failed requests after which the run is aborted as a network error
+#define MAX_SILENCE_SECONDS 30    // how long to pad with digital silence waiting for the server to close the last activation
 
 typedef enum {
-    RunFinished = 0,   // the session reached a natural end (see on_translation for whether a cry was translated)
-    RunInitFailed = 1, // the HTTP layer could not be initialized
-    RunFileError = 2,  // the audio file could not be opened
-    RunAuthFailed = 3, // the server rejected the credentials (HTTP 401/403)
-    RunCancelled = 4,  // the run was stopped through the should_stop callback
-    RunBadFormat = 5,  // the audio file is not an accepted format (WAV, 1 channel, 16KHz)
-    RunTooShort = 6    // the audio file is shorter than MIN_AUDIO_SECONDS
+    RunFinished = 0,     // the session reached a natural end (see on_translation for whether a cry was translated)
+    RunInitFailed = 1,   // the HTTP layer could not be initialized
+    RunFileError = 2,    // the audio file could not be opened
+    RunAuthFailed = 3,   // the server rejected the credentials (HTTP 401/403)
+    RunCancelled = 4,    // the run was stopped through the should_stop callback
+    RunBadFormat = 5,    // the audio file is not an accepted format (WAV, 1 channel, 16KHz)
+    RunTooShort = 6,     // the audio file is shorter than MIN_AUDIO_SECONDS
+    RunNetworkError = 7  // MAX_REQUEST_FAILURES requests in a row failed (endpoint unreachable or broken)
 } RunResult;
 
 typedef struct {

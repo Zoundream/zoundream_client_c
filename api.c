@@ -214,6 +214,7 @@ void api_send_audio(int16_t* audio, uint32_t timestamp, ApiResponse* api_respons
     api_response->phase = PhaseError;
     api_response->answer = AnswerUnknown;
     api_response->reason = ReasonUnknown;
+    api_response->request_failed = 0;
 
     wait_for_send_slot();
 
@@ -244,6 +245,7 @@ void api_send_audio(int16_t* audio, uint32_t timestamp, ApiResponse* api_respons
 
     if (res != CURLE_OK) {
         zc_log("curl_easy_perform() failed: %s", curl_easy_strerror(res));
+        api_response->request_failed = 1;
         return;
     }
 
@@ -266,6 +268,13 @@ void api_send_audio(int16_t* audio, uint32_t timestamp, ApiResponse* api_respons
     parse_response(api_response);
 
     zc_log("Response (%lu bytes): %s", (unsigned long) response.size, response.memory);
+
+    // An HTTP error whose body did not carry an understandable phase is a failed
+    // request (e.g. a proxy error page or a server-side crash), not a server answer.
+    if (http_code >= 400 && api_response->phase == PhaseError) {
+        zc_log("Request failed with HTTP %ld", http_code);
+        api_response->request_failed = 1;
+    }
 }
 
 const char* api_answer_name(Answer answer) {
