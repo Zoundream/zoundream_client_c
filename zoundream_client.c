@@ -25,6 +25,8 @@ int main(int argc, char **argv)
         case RunFinished: return 0;
         case RunInitFailed: return 1;
         case RunFileError: return 2;
+        case RunBadFormat: return 2;
+        case RunTooShort: return 2;
         case RunAuthFailed: return EXIT_AUTH_FAILED;
         default: return 1;
     }

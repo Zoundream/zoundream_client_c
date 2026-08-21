@@ -27,13 +27,23 @@ RunResult client_run(const RunOptions* options, const RunCallbacks* callbacks)
     int silence_announced = FALSE; // whether we have already logged that we are padding with silence
     int loop_on_eof = TRUE;        // whether audio_read should loop the file (vs pad silence) at EOF
 
-    // Initialize the HTTP and audio modules, and if any of them fails just quit
-    if (api_init(options->endpoint_url, options->api_key, options->user_id) != 1) return RunInitFailed;
+    // Open and validate the audio file before anything is sent to the API
     zc_log("Processing file: %s", options->audio_file_path);
-    AudioFile* audio_file = audio_open(options->audio_file_path);
+    int bad_format = 0;
+    AudioFile* audio_file = audio_open(options->audio_file_path, &bad_format);
     if (audio_file == 0) {
-        api_finish();
-        return RunFileError;
+        return bad_format ? RunBadFormat : RunFileError;
+    }
+    if (audio_total_frames(audio_file) < (uint64_t) MIN_AUDIO_SECONDS * SAMPLE_RATE) {
+        zc_log("File is too short: minimum duration is %d seconds. Skipping it.", MIN_AUDIO_SECONDS);
+        audio_close(audio_file);
+        return RunTooShort;
+    }
+
+    // Initialize the HTTP module, and if it fails just quit
+    if (api_init(options->endpoint_url, options->api_key, options->user_id) != 1) {
+        audio_close(audio_file);
+        return RunInitFailed;
     }
 
     // Read the audio one second at a time and send every buffer to the API.
@@ -44,6 +54,15 @@ RunResult client_run(const RunOptions* options, const RunCallbacks* callbacks)
         if (should_stop(callbacks)) {
             result = RunCancelled;
             break;
+        }
+
+        if (callbacks && callbacks->on_progress) {
+            RunProgress progress;
+            progress.position_seconds = (double) audio_position_frames(audio_file) / SAMPLE_RATE;
+            progress.total_seconds = (double) audio_total_frames(audio_file) / SAMPLE_RATE;
+            progress.loop_number = loop_count + 1;
+            progress.padding_silence = (reached_eof && !loop_on_eof);
+            callbacks->on_progress(callbacks->ctx, &progress);
         }
 
         api_send_audio(audio, activation_timestamp, &api_response);

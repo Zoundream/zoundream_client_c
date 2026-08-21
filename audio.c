@@ -16,7 +16,9 @@ struct AudioFile {
  *
  * @returns 0 if it fails to open the file, or if the format is not 16KHZ Mono, or a handle to the sound file if successful.
  */
-AudioFile* audio_open(const char* file_path) {
+AudioFile* audio_open(const char* file_path, int* bad_format) {
+    if (bad_format) *bad_format = 0;
+
     AudioFile* file = malloc(sizeof(AudioFile));
     if (file == NULL) return 0;
 
@@ -32,6 +34,7 @@ AudioFile* audio_open(const char* file_path) {
            (double) file->wav.totalPCMFrameCount / file->wav.sampleRate);
     if (file->wav.channels != 1 || file->wav.sampleRate != 16000) {
         zc_log("Format not compatible. Can only accept single channel 16KHz files.");
+        if (bad_format) *bad_format = 1;
         audio_close(file);
         return 0;
     }
@@ -83,4 +86,15 @@ void audio_close(AudioFile* file) {
     if (file == NULL) return;
     drwav_uninit(&file->wav);
     free(file);
+}
+
+/** @returns the total length of the file, in PCM frames (== samples, files are mono). */
+uint64_t audio_total_frames(AudioFile* file) {
+    return file->wav.totalPCMFrameCount;
+}
+
+/** @returns the current read position in the file, in PCM frames (== samples, files are mono).
+ * After looping back at EOF, the position reflects the new pass through the file. */
+uint64_t audio_position_frames(AudioFile* file) {
+    return file->wav.readCursorInPCMFrames;
 }

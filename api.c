@@ -155,12 +155,14 @@ int api_init(const char* endpoint_url, const char* api_key, const char* user_id)
     previous_send.tv_sec = 0;
     previous_send.tv_nsec = 0;
 
-    // Make the user id unique for each run by appending a timestamp.
-    // We do this to ensure that at every run there are no collisions in case the previous run was interrupted.
+    // Make the user id unique for each run by appending a millisecond timestamp, so that user
+    // collisions are impossible while all traffic from one tool remains filterable by its base id.
     // IMPORTANT: this is only for testing and in production the user ID must be unique and stable.
-    long run_id = (long) time(NULL);
-    snprintf(auth_header, sizeof(auth_header), "Authorization: %s-%ld", user_id, run_id);
-    zc_log("Using user id: %s-%ld", user_id, run_id);
+    struct timespec now;
+    clock_gettime(CLOCK_REALTIME, &now);
+    long long run_id = (long long) now.tv_sec * 1000 + now.tv_nsec / 1000000;
+    snprintf(auth_header, sizeof(auth_header), "Authorization: %s-%lld", user_id, run_id);
+    zc_log("Using user id: %s-%lld", user_id, run_id);
     snprintf(api_key_header, sizeof(api_key_header), "x-api-key: %s", api_key);
 
     curl_global_init(CURL_GLOBAL_DEFAULT);
