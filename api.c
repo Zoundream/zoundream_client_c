@@ -204,11 +204,12 @@ void api_set_abort_check(int (*check)(void* ctx), void* ctx) {
  * If the activation has been closed by the server, api_response.phase will be PhaseDone, and the cry translation answer
  * will be available in api_response.answer
  *
- * @param audio a buffer containing the audio to send
+ * @param audio a buffer containing 1 second of audio to send (i.e. sample_rate samples)
+ * @param sample_rate the sample rate of the audio, in Hz
  * @param timestamp the timestamp (relative to the start of the activation) of the audio
  * @param api_response a pointer to the structure where the response will be stored.
  */
-void api_send_audio(int16_t* audio, uint32_t timestamp, ApiResponse* api_response) {
+void api_send_audio(int16_t* audio, int sample_rate, uint32_t timestamp, ApiResponse* api_response) {
     // Start from a clean, defined state so that a failed request can never leave stale values
     // (e.g. the answer of the previous response) in api_response.
     api_response->phase = PhaseError;
@@ -230,15 +231,19 @@ void api_send_audio(int16_t* audio, uint32_t timestamp, ApiResponse* api_respons
         return;
     }
 
+    char sample_rate_header[48];
+    snprintf(sample_rate_header, sizeof(sample_rate_header), "x-audio-sample-rate: %d", sample_rate);
+
     struct curl_slist *list = NULL;
     list = curl_slist_append(list, auth_header);
     list = curl_slist_append(list, api_key_header);
-    list = curl_slist_append(list, "x-audio-sample-rate: 16000");
+    list = curl_slist_append(list, sample_rate_header);
     list = curl_slist_append(list, timestamp_header);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, list);
 
+    // 1 second of audio == sample_rate samples
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, audio);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE_LARGE, SAMPLE_RATE * sizeof(int16_t));
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t) sample_rate * sizeof(int16_t));
 
     res = curl_easy_perform(curl);
     curl_slist_free_all(list);

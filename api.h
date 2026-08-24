@@ -58,7 +58,7 @@ typedef struct {
 } ApiResponse ;
 
 int api_init(const char* endpoint, const char* api_key, const char* user_id);
-void api_send_audio(int16_t* audio, uint32_t timestamp, ApiResponse* api_response);
+void api_send_audio(int16_t* audio, int sample_rate, uint32_t timestamp, ApiResponse* api_response);
 void api_finish();
 
 /* Optional: when set, the check is polled during network transfers and pacing waits; returning

@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <string.h>
 
 #include "client_core.h"
@@ -13,14 +14,19 @@ static int should_stop(const RunCallbacks* callbacks)
     return callbacks && callbacks->should_stop && callbacks->should_stop(callbacks->ctx);
 }
 
+static void report_rejected(const RunCallbacks* callbacks, const char* reason)
+{
+    if (callbacks && callbacks->on_rejected) callbacks->on_rejected(callbacks->ctx, reason);
+}
+
 RunResult client_run(const RunOptions* options, const RunCallbacks* callbacks)
 {
     RunResult result = RunFinished;
 
     uint32_t activation_timestamp = 0;
     ApiResponse api_response;
-    int16_t audio[SAMPLE_RATE];
-    memset(audio, 0, sizeof(int16_t) * SAMPLE_RATE);
+    int16_t audio[MAX_SAMPLE_RATE]; // 1 second of audio at the highest accepted rate
+    memset(audio, 0, sizeof(int16_t) * MAX_SAMPLE_RATE);
     int reached_eof = FALSE;
     int loop_count = 0;
     int failed_requests = 0; // consecutive failed requests (reset by every request that gets through)
@@ -28,12 +34,22 @@ RunResult client_run(const RunOptions* options, const RunCallbacks* callbacks)
     // Open and validate the audio file before anything is sent to the API
     zc_log("Processing file: %s", options->audio_file_path);
     int bad_format = 0;
-    AudioFile* audio_file = audio_open(options->audio_file_path, &bad_format);
+    char open_error[160];
+    AudioFile* audio_file = audio_open(options->audio_file_path, &bad_format, open_error, sizeof(open_error));
     if (audio_file == 0) {
+        report_rejected(callbacks, open_error);
         return bad_format ? RunBadFormat : RunFileError;
     }
-    if (audio_total_frames(audio_file) < (uint64_t) MIN_AUDIO_SECONDS * SAMPLE_RATE) {
-        zc_log("File is too short: minimum duration is %d seconds. Skipping it.", MIN_AUDIO_SECONDS);
+
+    // One second of audio == sample_rate samples, and that is what every request carries
+    int sample_rate = audio_sample_rate(audio_file);
+
+    if (audio_total_frames(audio_file) < (uint64_t) MIN_AUDIO_SECONDS * sample_rate) {
+        char reason[96];
+        snprintf(reason, sizeof(reason), "only %.1f seconds of audio (minimum is %d seconds)",
+                 (double) audio_total_frames(audio_file) / sample_rate, MIN_AUDIO_SECONDS);
+        zc_log("Cannot use this file: %s. Skipping it.", reason);
+        report_rejected(callbacks, reason);
         audio_close(audio_file);
         return RunTooShort;
     }
@@ -48,7 +64,7 @@ RunResult client_run(const RunOptions* options, const RunCallbacks* callbacks)
     // valid translation arrives. Unlike a real device, we do not apply any volume threshold:
     // all the audio is sent. At the end of the file we loop back to the start (the stream stays
     // continuous, as if the baby kept crying), bounded by max_loops.
-    while (audio_read(audio_file, audio, SAMPLE_RATE, TRUE, &reached_eof) != 0) {
+    while (audio_read(audio_file, audio, sample_rate, TRUE, &reached_eof) != 0) {
         if (should_stop(callbacks)) {
             result = RunCancelled;
             break;
@@ -56,13 +72,13 @@ RunResult client_run(const RunOptions* options, const RunCallbacks* callbacks)
 
         if (callbacks && callbacks->on_progress) {
             RunProgress progress;
-            progress.position_seconds = (double) audio_position_frames(audio_file) / SAMPLE_RATE;
-            progress.total_seconds = (double) audio_total_frames(audio_file) / SAMPLE_RATE;
+            progress.position_seconds = (double) audio_position_frames(audio_file) / sample_rate;
+            progress.total_seconds = (double) audio_total_frames(audio_file) / sample_rate;
             progress.loop_number = loop_count + 1;
             callbacks->on_progress(callbacks->ctx, &progress);
         }
 
-        api_send_audio(audio, activation_timestamp, &api_response);
+        api_send_audio(audio, sample_rate, activation_timestamp, &api_response);
 
         if (api_response.reason == ReasonAuthFailed) {
             result = RunAuthFailed;

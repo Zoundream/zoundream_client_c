@@ -18,7 +18,7 @@ typedef enum {
     RunFileError = 2,    // the audio file could not be opened
     RunAuthFailed = 3,   // the server rejected the credentials (HTTP 401/403)
     RunCancelled = 4,    // the run was stopped through the should_stop callback
-    RunBadFormat = 5,    // the audio file is not an accepted format (WAV, 1 channel, 16KHz)
+    RunBadFormat = 5,    // the audio file is not an accepted format (WAV, 1 channel, 8 or 16 KHz)
     RunTooShort = 6,     // the audio file is shorter than MIN_AUDIO_SECONDS
     RunNetworkError = 7  // MAX_REQUEST_FAILURES requests in a row failed (endpoint unreachable or broken)
 } RunResult;
@@ -43,6 +43,8 @@ typedef struct {
     int (*should_stop)(void* ctx);  // polled between audio buffers; return non-zero to cancel the run
     void (*on_translation)(void* ctx, Answer answer, Reason reason); // called with the first valid translation, just before the run ends
     void (*on_progress)(void* ctx, const RunProgress* progress);
+    void (*on_rejected)(void* ctx, const char* reason); // called when the file is rejected before anything is sent
+                                                        // (RunFileError/RunBadFormat/RunTooShort), with the human-readable reason
     void* ctx;
 } RunCallbacks;
 

@@ -12,18 +12,24 @@ struct AudioFile {
     drwav wav;
 };
 
-/** Opens an audio file for reading.
+static void set_error(char* error, size_t error_size, const char* message) {
+    if (error && error_size > 0) snprintf(error, error_size, "%s", message);
+}
+
+/** Opens an audio file for reading. See audio.h for the accepted formats and the out parameters.
  *
- * @returns 0 if it fails to open the file, or if the format is not 16KHZ Mono, or a handle to the sound file if successful.
+ * @returns a handle to the sound file, or 0 on failure.
  */
-AudioFile* audio_open(const char* file_path, int* bad_format) {
+AudioFile* audio_open(const char* file_path, int* bad_format, char* error, size_t error_size) {
     if (bad_format) *bad_format = 0;
+    set_error(error, error_size, "");
 
     AudioFile* file = malloc(sizeof(AudioFile));
     if (file == NULL) return 0;
 
     if (!drwav_init_file(&file->wav, file_path, NULL)) {
-        zc_log("Failed to open file.");
+        set_error(error, error_size, "not a valid WAV file (or the file could not be read)");
+        zc_log("Cannot use this file: not a valid WAV file (or the file could not be read).");
         free(file);
         return 0;
     }
@@ -32,8 +38,16 @@ AudioFile* audio_open(const char* file_path, int* bad_format) {
     zc_log("  Total frames: %llu (duration: %.2f seconds)",
            (unsigned long long) file->wav.totalPCMFrameCount,
            (double) file->wav.totalPCMFrameCount / file->wav.sampleRate);
-    if (file->wav.channels != 1 || file->wav.sampleRate != 16000) {
-        zc_log("Format not compatible. Can only accept single channel 16KHz files.");
+
+    char reason[128] = "";
+    if (file->wav.channels != 1) {
+        snprintf(reason, sizeof(reason), "%d audio channels (only mono is accepted)", file->wav.channels);
+    } else if (file->wav.sampleRate != 8000 && file->wav.sampleRate != 16000) {
+        snprintf(reason, sizeof(reason), "%u Hz sample rate (only 8000 or 16000 Hz are accepted)", file->wav.sampleRate);
+    }
+    if (reason[0] != 0) {
+        set_error(error, error_size, reason);
+        zc_log("Cannot use this file: %s.", reason);
         if (bad_format) *bad_format = 1;
         audio_close(file);
         return 0;
@@ -86,6 +100,11 @@ void audio_close(AudioFile* file) {
     if (file == NULL) return;
     drwav_uninit(&file->wav);
     free(file);
+}
+
+/** @returns the sample rate of the file, in Hz. */
+int audio_sample_rate(AudioFile* file) {
+    return (int) file->wav.sampleRate;
 }
 
 /** @returns the total length of the file, in PCM frames (== samples, files are mono). */

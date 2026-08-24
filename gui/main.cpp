@@ -63,6 +63,7 @@ struct FileEntry {
     int loop_number = 1;
     RunResult result = RunFinished;
     std::vector<Translation> translations;
+    std::string reject_reason; // why the file was rejected before playing, when it was
 };
 
 struct AppState {
@@ -108,6 +109,13 @@ static void on_translation(void* ctx, Answer answer, Reason reason)
     AppState* state = (AppState*)ctx;
     std::lock_guard<std::mutex> lock(state->mutex);
     state->files[state->current_index].translations.push_back({answer, reason});
+}
+
+static void on_rejected(void* ctx, const char* reason)
+{
+    AppState* state = (AppState*)ctx;
+    std::lock_guard<std::mutex> lock(state->mutex);
+    state->files[state->current_index].reject_reason = reason;
 }
 
 static void on_progress(void* ctx, const RunProgress* progress)
@@ -186,6 +194,7 @@ static void start_run()
             entry.shown_progress = 0.0f;
             entry.loop_number = 1;
             entry.translations.clear();
+            entry.reject_reason.clear();
         }
         app.current_index = 0;
     }
@@ -221,6 +230,7 @@ static void start_run()
             callbacks.should_stop = should_stop;
             callbacks.on_translation = on_translation;
             callbacks.on_progress = on_progress;
+            callbacks.on_rejected = on_rejected;
             callbacks.ctx = &app;
 
             RunResult result = client_run(&options, &callbacks);
@@ -318,9 +328,13 @@ static void entry_status(const FileEntry& entry, std::string* text, ImVec4* colo
                 *color = answer_color(entry.translations.front().answer);
             }
             break;
-        case RunBadFormat: *text = "invalid audio format"; *color = red; break;
-        case RunTooShort: { char b[48]; snprintf(b, sizeof(b), "too short (less than %ds)", MIN_AUDIO_SECONDS); *text = b; *color = red; } break;
-        case RunFileError: *text = "could not open file"; *color = red; break;
+        case RunBadFormat:
+        case RunTooShort:
+        case RunFileError:
+            // Show the specific reason reported when the file was rejected
+            *text = entry.reject_reason.empty() ? "invalid audio file" : entry.reject_reason;
+            *color = red;
+            break;
         case RunNetworkError: *text = "network error"; *color = red; break;
         case RunAuthFailed: *text = "authentication failed"; *color = red; break;
         case RunInitFailed: *text = "network setup failed"; *color = red; break;
@@ -541,7 +555,12 @@ int main(int argc, char** argv)
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 130");
 
-    // Undocumented, for scripted testing: start the run immediately
+    // Undocumented, for scripted testing: pre-fill the key/endpoint and start the run immediately
+    if (const char* key = getenv("ZOUNDREAM_GUI_KEY")) snprintf(app.api_key, sizeof(app.api_key), "%s", key);
+    if (const char* endpoint = getenv("ZOUNDREAM_GUI_ENDPOINT")) {
+        app.endpoint_choice = ENDPOINT_OTHER;
+        snprintf(app.endpoint_custom, sizeof(app.endpoint_custom), "%s", endpoint);
+    }
     if (getenv("ZOUNDREAM_GUI_AUTOSTART") && !app.files.empty()) start_run();
 
     while (!glfwWindowShouldClose(window)) {
