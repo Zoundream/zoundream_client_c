@@ -11,7 +11,6 @@
 #define DEFAULT_MAX_LOOPS 3       // max number of times to loop back to the start looking for a valid translation, to avoid looping forever
 #define MIN_AUDIO_SECONDS 10      // files shorter than this are rejected before anything is sent
 #define MAX_REQUEST_FAILURES 5    // consecutive failed requests after which the run is aborted as a network error
-#define MAX_SILENCE_SECONDS 30    // how long to pad with digital silence waiting for the server to close the last activation
 
 typedef enum {
     RunFinished = 0,     // the session reached a natural end (see on_translation for whether a cry was translated)
@@ -37,13 +36,12 @@ typedef struct {
     double position_seconds; // current read position within the file (resets when the file loops)
     double total_seconds;    // total duration of the file
     int loop_number;         // which pass through the file this is, starting at 1
-    int padding_silence;     // non-zero once the file has ended and digital silence is being sent
 } RunProgress;
 
 /* All callbacks are optional (may be NULL) and are invoked from the thread that called client_run. */
 typedef struct {
     int (*should_stop)(void* ctx);  // polled between audio buffers; return non-zero to cancel the run
-    void (*on_translation)(void* ctx, Answer answer, Reason reason); // called for every valid translation received
+    void (*on_translation)(void* ctx, Answer answer, Reason reason); // called with the first valid translation, just before the run ends
     void (*on_progress)(void* ctx, const RunProgress* progress);
     void* ctx;
 } RunCallbacks;

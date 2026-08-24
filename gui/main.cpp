@@ -62,7 +62,6 @@ struct FileEntry {
     float progress = 0.0f;       // 0..1, position within the file (written by the worker)
     float shown_progress = 0.0f; // smoothed value actually drawn (only touched by the UI thread)
     int loop_number = 1;
-    bool padding_silence = false;
     RunResult result = RunFinished;
     std::vector<Translation> translations;
 };
@@ -119,7 +118,6 @@ static void on_progress(void* ctx, const RunProgress* progress)
     FileEntry& entry = state->files[state->current_index];
     entry.progress = progress->total_seconds > 0 ? (float)(progress->position_seconds / progress->total_seconds) : 0.0f;
     entry.loop_number = progress->loop_number;
-    entry.padding_silence = progress->padding_silence != 0;
 }
 
 /* ------------------------------ Config persistence ----------------------------------- */
@@ -226,7 +224,6 @@ static void start_run()
             entry.progress = 0.0f;
             entry.shown_progress = 0.0f;
             entry.loop_number = 1;
-            entry.padding_silence = false;
             entry.translations.clear();
         }
         app.current_index = 0;
@@ -336,9 +333,7 @@ static void entry_status(const FileEntry& entry, std::string* text, ImVec4* colo
         return;
     }
     if (entry.state == FileEntry::Playing) {
-        if (entry.padding_silence) {
-            *text = "finishing...";
-        } else if (entry.loop_number > 1) {
+        if (entry.loop_number > 1) {
             char buffer[32];
             snprintf(buffer, sizeof(buffer), "loop %d/%d", entry.loop_number - 1, MAX_LOOPS);
             *text = buffer;
@@ -467,7 +462,7 @@ static void draw_ui()
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                  ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoSavedSettings);
 
-    ImGui::SeparatorText("Zoundream API test client");
+    ImGui::SeparatorText("Zoundream Cry Translation demo");
 
     ImGui::BeginDisabled(app.running);
 
@@ -486,9 +481,6 @@ static void draw_ui()
         ImGui::SameLine();
         ImGui::SetNextItemWidth(-1);
         ImGui::InputTextWithHint("##endpoint_custom", "https://...", app.endpoint_custom, sizeof(app.endpoint_custom));
-    } else {
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s", ENDPOINT_URLS[app.endpoint_choice]);
     }
 
     field_label("API key");
@@ -564,7 +556,7 @@ int main(int argc, char** argv)
     // Undocumented, for scripted testing: override the window title (and with it, which
     // window a screenshot tool picks up when several instances are running)
     const char* title = getenv("ZOUNDREAM_GUI_TITLE");
-    GLFWwindow* window = glfwCreateWindow(900, 700, title ? title : "Zoundream Test Client", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(900, 700, title ? title : "Zoundream Cry Translation demo", nullptr, nullptr);
     if (!window) {
         fprintf(stderr, "Failed to create window\n");
         glfwTerminate();

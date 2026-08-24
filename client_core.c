@@ -21,13 +21,9 @@ RunResult client_run(const RunOptions* options, const RunCallbacks* callbacks)
     ApiResponse api_response;
     int16_t audio[SAMPLE_RATE];
     memset(audio, 0, sizeof(int16_t) * SAMPLE_RATE);
-    int has_valid_translation = FALSE;
     int reached_eof = FALSE;
     int loop_count = 0;
-    int silence_announced = FALSE; // whether we have already logged that we are padding with silence
-    int silence_seconds = 0;       // how many seconds of digital silence have been sent so far
-    int failed_requests = 0;       // consecutive failed requests (reset by every request that gets through)
-    int loop_on_eof = TRUE;        // whether audio_read should loop the file (vs pad silence) at EOF
+    int failed_requests = 0; // consecutive failed requests (reset by every request that gets through)
 
     // Open and validate the audio file before anything is sent to the API
     zc_log("Processing file: %s", options->audio_file_path);
@@ -48,11 +44,11 @@ RunResult client_run(const RunOptions* options, const RunCallbacks* callbacks)
         return RunInitFailed;
     }
 
-    // Read the audio one second at a time and send every buffer to the API.
-    // Unlike a real device, we do not apply any volume threshold: all the audio is sent.
-    // How the end of the file is handled (loop the file with real audio, or pad with digital
-    // silence) is decided by loop_on_eof, which is updated at the bottom of the loop.
-    while (audio_read(audio_file, audio, SAMPLE_RATE, loop_on_eof, &reached_eof) != 0) {
+    // Read the audio one second at a time and send every buffer to the API, until the first
+    // valid translation arrives. Unlike a real device, we do not apply any volume threshold:
+    // all the audio is sent. At the end of the file we loop back to the start (the stream stays
+    // continuous, as if the baby kept crying), bounded by max_loops.
+    while (audio_read(audio_file, audio, SAMPLE_RATE, TRUE, &reached_eof) != 0) {
         if (should_stop(callbacks)) {
             result = RunCancelled;
             break;
@@ -63,7 +59,6 @@ RunResult client_run(const RunOptions* options, const RunCallbacks* callbacks)
             progress.position_seconds = (double) audio_position_frames(audio_file) / SAMPLE_RATE;
             progress.total_seconds = (double) audio_total_frames(audio_file) / SAMPLE_RATE;
             progress.loop_number = loop_count + 1;
-            progress.padding_silence = (reached_eof && !loop_on_eof);
             callbacks->on_progress(callbacks->ctx, &progress);
         }
 
@@ -92,68 +87,35 @@ RunResult client_run(const RunOptions* options, const RunCallbacks* callbacks)
             failed_requests = 0;
         }
 
-        int closed = (api_response.phase == PhaseDone || api_response.phase == PhaseError);
-
-        if (closed) {
-            // The server has closed the activation. The next buffer we send (with timestamp 0)
-            // will start a brand new activation, so reset the timestamp and the silence counter.
-            activation_timestamp = 0;
-            silence_announced = FALSE;
-
-            // A valid translation is any answer other than "no_cry" (AnswerUnknown means we
-            // failed to parse the response, so it does not count as a valid translation either).
+        if (api_response.phase == PhaseDone || api_response.phase == PhaseError) {
+            // The server has closed the activation. A valid translation is any answer other
+            // than "no_cry" (AnswerUnknown means we failed to parse the response, so it does
+            // not count as a valid translation either) - report it and end the run right away.
             if (api_response.answer != AnswerNoCry && api_response.answer != AnswerUnknown) {
-                has_valid_translation = TRUE;
-                zc_log("Received a valid cry translation.");
+                zc_log("Received a valid cry translation. Exiting.");
                 if (callbacks && callbacks->on_translation) {
                     callbacks->on_translation(callbacks->ctx, api_response.answer, api_response.reason);
                 }
+                break;
             }
+            // No translation: the next buffer we send (with timestamp 0) starts a brand new activation.
+            activation_timestamp = 0;
         } else {
             // The activation is still open, keep sending audio with an increasing timestamp.
             activation_timestamp += SEND_TO_SERVER_SIZE_MS;
         }
 
-        // What we do at the end of the file depends only on whether we already have at least one valid
-        // translation or not:
-        // - NO translation yet: loop the file so the server keeps receiving
-        //   continuous real audio, which gives it the best chance to find and translate a cry. We
-        //   never pad with silence in this case, as we want to simulate a baby continuing to cry.
-        //   This is bounded by max_loops so a file with no valid cry content does not loop forever.
-        // - YES we have one translation: continue playing the file until the end, without looping.
-        //   If a translation is still in progress at the end of the file, pad it with digital silence
-        //   (zero values) so the server can finish it.
+        // At the end of the file, loop back to the start so the server keeps receiving continuous
+        // real audio, which gives it the best chance to find and translate a cry. This is bounded
+        // by max_loops so a file with no valid cry content does not loop forever.
         if (reached_eof) {
-            if (!has_valid_translation) {
-                loop_count++;
-                if (loop_count > options->max_loops) {
-                    zc_log("Reached the end of the file with no valid translation after looping back %d times. Exiting.", options->max_loops);
-                    break;
-                }
-                zc_log("Reached the end of the file with no valid translation yet. Looping back to keep searching (%d/%d).", loop_count, options->max_loops);
-            } else if (closed) {
-                zc_log("Reached the end of the file with a valid translation. Exiting.");
+            loop_count++;
+            if (loop_count > options->max_loops) {
+                zc_log("Reached the end of the file with no valid translation after looping back %d times. Exiting.", options->max_loops);
                 break;
-            } else {
-                // An activation is still in progress: pad every API request with digital silence to
-                // allow the server to finish it cleanly. This is bounded by MAX_SILENCE_SECONDS
-                // because the server may never close an activation that only receives silence.
-                if (!silence_announced) {
-                    zc_log("Reached the end of the file with a translation still in progress. Sending digital silence to let it finish.");
-                    silence_announced = TRUE;
-                    silence_seconds = 0;
-                }
-                silence_seconds++;
-                if (silence_seconds >= MAX_SILENCE_SECONDS) {
-                    zc_log("The server did not close the activation after %d seconds of silence. Exiting.", MAX_SILENCE_SECONDS);
-                    break;
-                }
             }
+            zc_log("Reached the end of the file with no valid translation yet. Looping back to keep searching (%d/%d).", loop_count, options->max_loops);
         }
-
-        // While searching for the first valid translation we loop the file (continuous real audio).
-        // When we have at least one, we stop looping and pad with digital silence instead.
-        loop_on_eof = !has_valid_translation;
     }
 
     audio_close(audio_file);
