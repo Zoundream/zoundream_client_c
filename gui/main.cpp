@@ -39,7 +39,6 @@ extern "C" {
 #include "zc_log.h"
 }
 
-#define CONFIG_FILE "zoundream_gui.cfg"
 #define MAX_LOOPS 3
 
 static const char* ENDPOINT_NAMES[] = { "Europe", "China", "Other" };
@@ -120,43 +119,6 @@ static void on_progress(void* ctx, const RunProgress* progress)
     entry.loop_number = progress->loop_number;
 }
 
-/* ------------------------------ Config persistence ----------------------------------- */
-
-static void copy_value(char* dest, size_t dest_size, const char* value)
-{
-    snprintf(dest, dest_size, "%s", value);
-}
-
-static void load_config()
-{
-    FILE* f = fopen(CONFIG_FILE, "r");
-    if (!f) return;
-    char line[1200];
-    while (fgets(line, sizeof(line), f)) {
-        line[strcspn(line, "\r\n")] = 0;
-        char* sep = strchr(line, '=');
-        if (!sep) continue;
-        *sep = 0;
-        const char* key = line;
-        const char* value = sep + 1;
-        if (strcmp(key, "endpoint_choice") == 0) app.endpoint_choice = atoi(value);
-        else if (strcmp(key, "endpoint_custom") == 0) copy_value(app.endpoint_custom, sizeof(app.endpoint_custom), value);
-        else if (strcmp(key, "api_key") == 0) copy_value(app.api_key, sizeof(app.api_key), value);
-    }
-    fclose(f);
-    if (app.endpoint_choice < 0 || app.endpoint_choice > ENDPOINT_OTHER) app.endpoint_choice = 0;
-}
-
-static void save_config()
-{
-    FILE* f = fopen(CONFIG_FILE, "w");
-    if (!f) return;
-    fprintf(f, "endpoint_choice=%d\n", app.endpoint_choice);
-    fprintf(f, "endpoint_custom=%s\n", app.endpoint_custom);
-    fprintf(f, "api_key=%s\n", app.api_key);
-    fclose(f);
-}
-
 /* ------------------------------ File list ----------------------------------- */
 
 static std::string base_name(const std::string& path)
@@ -213,7 +175,6 @@ static void start_run()
     if (app.endpoint_choice == ENDPOINT_OTHER && app.endpoint_custom[0] == 0) { app.error = "Please enter the endpoint URL."; return; }
     if (app.files.empty()) { app.error = "Please add at least one audio file."; return; }
 
-    save_config();
     join_worker();
 
     {
@@ -538,7 +499,6 @@ static void draw_ui()
 
 int main(int argc, char** argv)
 {
-    load_config();
     zc_set_log_sink(log_sink, &app);
     api_set_abort_check(should_stop, &app);
 
@@ -568,6 +528,7 @@ int main(int argc, char** argv)
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    ImGui::GetIO().IniFilename = nullptr; // the app deliberately writes no files on its own
     ImGui::StyleColorsDark();
 
     // Scale the UI with the monitor content scale (HiDPI)
@@ -608,7 +569,6 @@ int main(int argc, char** argv)
     // Shut down cleanly even if a run is still in progress
     app.stop_requested = true;
     join_worker();
-    save_config();
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
