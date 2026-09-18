@@ -164,6 +164,10 @@ int api_init(const char* endpoint_url, const char* api_key, const char* user_id)
     snprintf(auth_header, sizeof(auth_header), "Authorization: %s-%lld", user_id, run_id);
     zc_log("Using user id: %s-%lld", user_id, run_id);
     snprintf(api_key_header, sizeof(api_key_header), "x-api-key: %s", api_key);
+    // Logged so that a log sent to us always says which environment it talked to: an API key is
+    // only valid on the endpoint it was issued for, and a key used against another one just
+    // comes back as an authentication failure.
+    zc_log("Using endpoint: %s", endpoint_url);
 
     curl_global_init(CURL_GLOBAL_DEFAULT);
     curl = curl_easy_init();
