@@ -65,7 +65,7 @@ if [ ! -f $BUILD/tinyfiledialogs.o ]; then
 fi
 
 # ---- Client core (from the repository root) ----
-for f in api audio client_core zc_log third_party/cJSON; do
+for f in api audio client_core zc_io zc_log third_party/cJSON; do
     gcc $CFLAGS `curl-config --cflags` \
         -I$CORE -c $CORE/$f.c -o $BUILD/core_$(basename $f).o
 done

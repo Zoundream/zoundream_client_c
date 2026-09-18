@@ -1,19 +1,45 @@
 #include "audio.h"
+#include "zc_io.h"
 #include "zc_log.h"
 
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define DR_WAV_IMPLEMENTATION
-#define DRWAV_NO_STDIO_W // we only need the narrow (char*) file APIs
+// We open the file ourselves with zc_fopen() (see zc_io.h: dr_wav's own fopen() would break
+// on non-ASCII paths on Windows) and feed dr_wav through the callbacks below, so none of its
+// file APIs are needed.
+#define DR_WAV_NO_STDIO
 #include "third_party/dr_wav.h"
 
 struct AudioFile {
     drwav wav;
+    FILE* stream; // the open file dr_wav reads through, closed by audio_close()
 };
 
 static void set_error(char* error, size_t error_size, const char* message) {
     if (error && error_size > 0) snprintf(error, error_size, "%s", message);
+}
+
+/* ---- The stdio backing for dr_wav, which reads through these three callbacks ---- */
+
+static size_t on_read(void* stream, void* buffer, size_t bytes_to_read) {
+    return fread(buffer, 1, bytes_to_read, (FILE*) stream);
+}
+
+static drwav_bool32 on_seek(void* stream, int offset, drwav_seek_origin origin) {
+    int whence = SEEK_SET;
+    if (origin == DRWAV_SEEK_CUR) whence = SEEK_CUR;
+    else if (origin == DRWAV_SEEK_END) whence = SEEK_END;
+    return fseek((FILE*) stream, offset, whence) == 0;
+}
+
+static drwav_bool32 on_tell(void* stream, drwav_int64* cursor) {
+    long position = ftell((FILE*) stream);
+    if (position < 0) return DRWAV_FALSE;
+    *cursor = position;
+    return DRWAV_TRUE;
 }
 
 /** Opens an audio file for reading. See audio.h for the accepted formats and the out parameters.
@@ -27,9 +53,20 @@ AudioFile* audio_open(const char* file_path, int* bad_format, char* error, size_
     AudioFile* file = malloc(sizeof(AudioFile));
     if (file == NULL) return 0;
 
-    if (!drwav_init_file(&file->wav, file_path, NULL)) {
-        set_error(error, error_size, "not a valid WAV file (or the file could not be read)");
-        zc_log("Cannot use this file: not a valid WAV file (or the file could not be read).");
+    file->stream = zc_fopen(file_path, "rb");
+    if (file->stream == NULL) {
+        char reason[160];
+        snprintf(reason, sizeof(reason), "the file could not be opened (%s)", strerror(errno));
+        set_error(error, error_size, reason);
+        zc_log("Cannot use this file: %s.", reason);
+        free(file);
+        return 0;
+    }
+
+    if (!drwav_init(&file->wav, on_read, on_seek, on_tell, file->stream, NULL)) {
+        set_error(error, error_size, "not a valid WAV file (its header could not be read)");
+        zc_log("Cannot use this file: not a valid WAV file (its header could not be read).");
+        fclose(file->stream);
         free(file);
         return 0;
     }
@@ -99,6 +136,7 @@ int audio_read(AudioFile* file, int16_t* buffer, size_t amount, int loop_on_eof,
 void audio_close(AudioFile* file) {
     if (file == NULL) return;
     drwav_uninit(&file->wav);
+    fclose(file->stream);
     free(file);
 }
 

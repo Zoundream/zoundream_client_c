@@ -19,6 +19,12 @@
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <shellapi.h> // CommandLineToArgvW
+#endif
+
 #include "tinyfiledialogs.h"
 
 // The OpenGL 1.x entry points we call ourselves (the ImGui backend loads its own).
@@ -36,6 +42,7 @@ void glViewport(GLint x, GLint y, GLsizei width, GLsizei height);
 extern "C" {
 #include "client_core.h"
 #include "api.h"
+#include "zc_io.h"
 #include "zc_log.h"
 }
 
@@ -44,8 +51,9 @@ extern "C" {
 static const char* ENDPOINT_NAMES[] = { "Europe", "China", "Other" };
 static const char* ENDPOINT_URLS[] = {
     "https://stage-znd-eu.zoundream-api.com/audio",
-    "https://zcn-cn.zoundream.cn/audio",
+    "https://demo.zoundream.cn/audio",
 };
+#define ENDPOINT_CHINA 1
 #define ENDPOINT_OTHER 2
 
 struct Translation {
@@ -68,7 +76,9 @@ struct FileEntry {
 
 struct AppState {
     // Run options edited in the UI
-    int endpoint_choice = 0;
+    // China by default: that is where nearly every user of this client is, and since the app
+    // deliberately persists nothing, whatever is set here is what they get on every launch.
+    int endpoint_choice = ENDPOINT_CHINA;
     char endpoint_custom[512] = "";
     char api_key[256] = "";
     bool show_api_key = false;
@@ -260,8 +270,11 @@ static void save_log_dialog()
     const char* patterns[] = { "*.txt" };
     const char* path = tinyfd_saveFileDialog("Save log", "zoundream_log.txt", 1, patterns, "Text files");
     if (!path) return;
-    FILE* f = fopen(path, "w");
-    if (!f) return;
+    FILE* f = zc_fopen(path, "w"); // not fopen: the path may contain non-ASCII characters
+    if (!f) {
+        zc_log("Could not save the log to that location.");
+        return;
+    }
     std::lock_guard<std::mutex> lock(app.mutex);
     for (const std::string& line : app.log) {
         fprintf(f, "%s\n", line.c_str());
@@ -509,16 +522,87 @@ static void draw_ui()
     ImGui::End();
 }
 
+/* ------------------------------ Fonts ----------------------------------- */
+
+/* Merges a system font covering Chinese into the default UI font.
+ *
+ * Dear ImGui's built-in font only has Latin glyphs, so a file named e.g. 宝宝哭声.wav would
+ * show up as a row of empty boxes - and most of our users are in China. A CJK font is several
+ * megabytes, far too much to embed in a binary we send over chat, so we borrow the one the
+ * system already has. In merge mode the Latin UI keeps the look it has everywhere else and
+ * only the missing glyphs come from this font; ImGui rasterizes glyphs on demand, so a font
+ * this large costs nothing until a non-ASCII character is actually drawn.
+ */
+static void merge_cjk_font()
+{
+    static const char* const font_paths[] = {
+#ifdef _WIN32
+        "C:\\Windows\\Fonts\\msyh.ttc",    // Microsoft YaHei, the system UI font since Windows 8.1
+        "C:\\Windows\\Fonts\\msyh.ttf",    // the same, as shipped by Vista and 7
+        "C:\\Windows\\Fonts\\simhei.ttf",  // SimHei
+        "C:\\Windows\\Fonts\\simsun.ttc",  // SimSun, present on every Chinese Windows
+#else
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+#endif
+    };
+
+    ImFontAtlas* fonts = ImGui::GetIO().Fonts;
+    fonts->AddFontDefault(); // the default UI font, unchanged
+
+    ImFontConfig config;
+    config.MergeMode = true;                 // add these glyphs to the default font
+    config.Flags |= ImFontFlags_NoLoadError; // a font that is not installed is not an error, just try the next one
+    for (const char* path : font_paths) {
+        // Size 0 means "the size of the font being merged into": ImGui rejects merging a
+        // source with an explicit size into a font that has none, which is the default one.
+        if (fonts->AddFontFromFileTTF(path, 0.0f, &config) != nullptr) return;
+    }
+    zc_log("No Chinese font found on this system: file names in Chinese may show as empty boxes.");
+}
+
 /* ------------------------------ Main ----------------------------------- */
+
+/* Returns the audio file paths passed on the command line, UTF-8 encoded.
+ *
+ * On Windows the argv strings the C runtime builds for main() are encoded in the process ANSI
+ * code page (GBK on a Chinese system), not UTF-8 like every other path in this program, so a
+ * file with a Chinese name dropped onto the .exe in Explorer would arrive mis-encoded and fail
+ * to open. The wide command line does not have that problem, so take the paths from there.
+ */
+static std::vector<std::string> command_line_files(int argc, char** argv)
+{
+#ifdef _WIN32
+    (void) argc;
+    (void) argv;
+    std::vector<std::string> files;
+    int count = 0;
+    wchar_t** wide_argv = CommandLineToArgvW(GetCommandLineW(), &count);
+    if (wide_argv == nullptr) return files;
+
+    for (int i = 1; i < count; i++) {
+        int size = WideCharToMultiByte(CP_UTF8, 0, wide_argv[i], -1, nullptr, 0, nullptr, nullptr);
+        if (size <= 1) continue; // 1 == just the terminator, i.e. an empty argument
+        std::string path((size_t) size - 1, '\0');
+        WideCharToMultiByte(CP_UTF8, 0, wide_argv[i], -1, &path[0], size, nullptr, nullptr);
+        files.push_back(path);
+    }
+    LocalFree(wide_argv);
+    return files;
+#else
+    return std::vector<std::string>(argv + 1, argv + argc);
+#endif
+}
+
 
 int main(int argc, char** argv)
 {
     zc_set_log_sink(log_sink, &app);
     api_set_abort_check(should_stop, &app);
 
-    // Audio files can also be passed on the command line
-    for (int i = 1; i < argc; i++) {
-        add_file(argv[i]);
+    // Audio files can also be passed on the command line, or dropped onto the executable
+    for (const std::string& path : command_line_files(argc, argv)) {
+        add_file(path);
     }
 
     if (!glfwInit()) {
@@ -551,6 +635,8 @@ int main(int argc, char** argv)
     float scale = std::max(1.0f, xscale);
     ImGui::GetStyle().ScaleAllSizes(scale);
     ImGui::GetStyle().FontScaleDpi = scale;
+
+    merge_cjk_font();
 
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 130");

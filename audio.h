@@ -9,6 +9,7 @@
 typedef struct AudioFile AudioFile;
 
 /* Opens an audio file, accepting only WAV files with 1 channel at 8000 or 16000 Hz.
+ * The path is UTF-8 encoded on every platform, including Windows (see zc_io.h).
  *
  * On failure returns 0 and, when the optional out parameters are given:
  * - *bad_format is set to 1 when the file was readable but is not an accepted format
