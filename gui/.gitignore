@@ -1,0 +1,8 @@
+build/
+build-windows/
+.deps-sysroot/
+.win-deps/
+zoundream_gui
+zoundream_gui.exe
+imgui.ini
+zoundream_gui.cfg
