@@ -11,7 +11,7 @@
 set -e
 cd "$(dirname "$0")"
 
-TOOLCHAIN="${LLVM_MINGW:-$HOME/babyt/toolchains/llvm-mingw}"
+TOOLCHAIN="${LLVM_MINGW:-$HOME/llvm-mingw}"
 if [ ! -x "$TOOLCHAIN/bin/x86_64-w64-mingw32-gcc" ]; then
     echo "llvm-mingw toolchain not found at $TOOLCHAIN" >&2
     echo "Download a release from https://github.com/mstorsjo/llvm-mingw/releases" >&2

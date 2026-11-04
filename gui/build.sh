@@ -6,7 +6,7 @@
 # the first time (delete gui/build/ to force a rebuild of those), then the client core
 # from the repository root and the GUI itself are compiled and linked.
 #
-# Requirements beyond the command line client's (libcurl, json-c, sndfile dev packages):
+# Requirements beyond the command line client's (the libcurl dev package):
 # X11 headers - either system-wide (sudo apt install xorg-dev) or fetched locally
 # without root via ./fetch_x11_headers.sh
 
