@@ -99,7 +99,7 @@ The first build compiles the included GLFW and Dear ImGui libraries into `gui/bu
 The Windows version is cross-compiled from Linux, and produces a single `gui/zoundream_gui.exe` that has no other dependencies and can be copied to any 64 bit Windows machine.
 
 1. Download the [llvm-mingw](https://github.com/mstorsjo/llvm-mingw/releases) toolchain (the `ucrt-ubuntu-*-x86_64` tarball) and extract it.
-   Set the `LLVM_MINGW` environment variable to the directory where you extracted it:
+   Extract it into `~/llvm-mingw`, or set the `LLVM_MINGW` environment variable to the directory where you extracted it:
    ```
    export LLVM_MINGW=/path/to/llvm-mingw
    ```
